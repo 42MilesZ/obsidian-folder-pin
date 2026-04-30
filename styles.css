@@ -314,3 +314,23 @@
   top: auto;
   bottom: -3px;
 }
+
+/* Folder hierarchy decoration consumes CSS custom properties set on the row by
+   syncFolderHierarchyDecoration in main.ts. Defining the consumption rules here
+   (instead of writing concrete values via JS) keeps theme override compatibility. */
+[data-fep-depth] {
+  font-weight: var(--nav-item-weight);
+}
+
+[data-fep-depth="1"] {
+  font-size: var(--nav-item-size);
+}
+
+[data-fep-depth] {
+  color: var(--nav-item-color);
+}
+
+[data-fep-folder-depth] {
+  margin-top: var(--fep-folder-margin, 0);
+  margin-bottom: var(--fep-folder-margin, 0);
+}

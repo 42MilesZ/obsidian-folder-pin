@@ -1407,7 +1407,6 @@ class FileExplorerPinController {
       element.style.setProperty("--nav-item-weight", fontWeight);
       element.style.setProperty("--nav-item-weight-hover", fontWeight);
       element.style.setProperty("--nav-item-weight-active", fontWeight);
-      element.style.setProperty("font-weight", fontWeight);
     }
 
     if (depth === 1) {
@@ -1416,7 +1415,6 @@ class FileExplorerPinController {
       for (const element of rowElements) {
         element.style.setProperty("--nav-item-size", fontSize);
         element.style.setProperty("--icon-size", iconSize);
-        element.style.setProperty("font-size", fontSize);
       }
     }
 
@@ -1429,7 +1427,6 @@ class FileExplorerPinController {
         element.style.setProperty("--nav-collapse-icon-color", DEFAULT_FOLDER_LEVEL_1_COLOR);
         element.style.setProperty("--nav-collapse-icon-color-collapsed", DEFAULT_FOLDER_LEVEL_1_COLOR);
         element.style.setProperty("--icon-color", DEFAULT_FOLDER_LEVEL_1_COLOR);
-        element.style.setProperty("color", DEFAULT_FOLDER_LEVEL_1_COLOR);
       }
     }
 
@@ -1440,9 +1437,7 @@ class FileExplorerPinController {
 
     folderWrapper.setAttribute(FOLDER_WRAPPER_DEPTH_ATTR, String(depth));
     const spacingPx = this.plugin.getFolderExpandedSpacingPx(depth);
-    const spacing = `${spacingPx}px`;
-    folderWrapper.style.setProperty("margin-top", spacing);
-    folderWrapper.style.setProperty("margin-bottom", spacing);
+    folderWrapper.style.setProperty("--fep-folder-margin", `${spacingPx}px`);
   }
 
   private syncFileTypeMarker(containerEl: HTMLElement, marker: FileTypeMarker | null): void {
@@ -1504,17 +1499,13 @@ class FileExplorerPinController {
       rowEl.style.removeProperty("--nav-collapse-icon-color");
       rowEl.style.removeProperty("--nav-collapse-icon-color-collapsed");
       rowEl.style.removeProperty("--icon-color");
-      rowEl.style.removeProperty("font-weight");
-      rowEl.style.removeProperty("color");
-      rowEl.style.removeProperty("font-size");
     }
 
     for (const folderEl of Array.from(
       this.view.containerEl.querySelectorAll<HTMLElement>(`[${FOLDER_WRAPPER_DEPTH_ATTR}]`),
     )) {
       folderEl.removeAttribute(FOLDER_WRAPPER_DEPTH_ATTR);
-      folderEl.style.removeProperty("margin-top");
-      folderEl.style.removeProperty("margin-bottom");
+      folderEl.style.removeProperty("--fep-folder-margin");
     }
   }
 
