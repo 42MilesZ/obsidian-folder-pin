@@ -1,0 +1,17 @@
+{
+  "name": "folder-pin",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs --watch",
+    "sync-icons": "node scripts/sync-icons.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.11",
+    "esbuild": "^0.25.2",
+    "obsidian": "^1.8.10",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,316 @@
+.file-explorer-pin-status {
+  --file-explorer-pin-tab-radius: 10px;
+  display: flex;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0.3rem;
+  margin: 0 0.75rem 0.5rem;
+  min-height: 36px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-left: 1px;
+  padding-right: 1px;
+  padding-bottom: 0.15rem;
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.file-explorer-pin-status[data-layout="horizontal"] {
+  flex-direction: row;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.file-explorer-pin-status[data-layout="vertical"] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  max-height: min(40vh, 24rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 0;
+}
+
+.file-explorer-pin-status::-webkit-scrollbar {
+  display: none;
+}
+
+.file-explorer-pin-status .clickable-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.file-explorer-pin-status .clickable-icon svg.svg-icon {
+  width: max(12px, calc(var(--icon-s, 16px) - 2px));
+  height: max(12px, calc(var(--icon-s, 16px) - 2px));
+  min-width: max(12px, calc(var(--icon-s, 16px) - 2px));
+  min-height: max(12px, calc(var(--icon-s, 16px) - 2px));
+  stroke-width: max(1.5px, calc(var(--icon-s-stroke-width, var(--icon-stroke-width, 2px)) - 0.1px));
+}
+
+.file-explorer-pin-tab {
+  display: inline-flex;
+  min-width: 196px;
+  max-width: 280px;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 36px;
+  gap: 0.2rem;
+  padding: 0.2rem 0.35rem 0.2rem 0.4rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--file-explorer-pin-tab-radius);
+  background: transparent !important;
+  box-shadow: none !important;
+  cursor: grab;
+  position: relative;
+}
+
+.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+.file-explorer-pin-tab.is-active {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, transparent 90%, var(--interactive-accent) 10%);
+}
+
+.file-explorer-pin-tab.is-dragging {
+  opacity: 0.68;
+  cursor: grabbing;
+}
+
+.file-explorer-pin-tab.is-drop-before::before,
+.file-explorer-pin-tab.is-drop-after::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--interactive-accent);
+}
+
+.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab.is-drop-before::before,
+.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab.is-drop-after::after {
+  left: 8px;
+  right: 8px;
+  width: auto;
+  height: 2px;
+}
+
+.file-explorer-pin-tab.is-drop-before::before {
+  left: -3px;
+}
+
+.file-explorer-pin-tab.is-drop-after::after {
+  right: -3px;
+}
+
+.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab.is-drop-before::before {
+  top: -3px;
+  bottom: auto;
+}
+
+.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab.is-drop-after::after {
+  top: auto;
+  bottom: -3px;
+}
+
+.file-explorer-pin-tab-body {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 24px;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-start;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal);
+  padding: 0;
+  text-align: left;
+  border-radius: 0 !important;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 1.6rem), transparent 100%);
+  mask-image: linear-gradient(to right, black calc(100% - 1.6rem), transparent 100%);
+}
+
+.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab-body {
+  display: flex;
+}
+
+.file-explorer-pin-tab-label {
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}
+
+.file-explorer-pin-status .clickable-icon.file-explorer-pin-tab-action {
+  flex: 0 0 auto;
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  background-image: none !important;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.file-explorer-pin-status .clickable-icon.file-explorer-pin-tab-action:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.12);
+  background-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+.file-explorer-pin-tab-action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.file-explorer-pin-tab-action.is-active {
+  color: var(--interactive-accent);
+}
+
+.file-explorer-pin-add-tab {
+  display: inline-flex;
+  min-width: 30px;
+  width: 30px;
+  flex: 0 0 30px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: var(--file-explorer-pin-tab-radius);
+  background: color-mix(in srgb, transparent 96%, var(--background-modifier-hover) 4%) !important;
+  box-shadow: none !important;
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.file-explorer-pin-status .clickable-icon.file-explorer-pin-add-tab {
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.file-explorer-pin-status .file-explorer-pin-add-tab {
+  border-radius: var(--file-explorer-pin-tab-radius);
+}
+
+.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-add-tab {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+
+.file-explorer-pin-status .clickable-icon.file-explorer-pin-add-tab:hover {
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border-hover);
+  background: rgba(0, 0, 0, 0.12) !important;
+  background-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+.workspace-leaf-content[data-type="file-explorer"].file-explorer-pin-managed .nav-file-tag:not(.file-explorer-pin-file-type-marker) {
+  display: none !important;
+}
+
+.workspace-leaf-content[data-type="file-explorer"].file-explorer-pin-managed .file-explorer-pin-file-type-marker.nav-file-tag {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  margin-left: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  transform: translateY(0);
+}
+
+.workspace-leaf-content[data-type="file-explorer"].file-explorer-pin-managed[data-file-type-marker-style="text"] .file-explorer-pin-file-type-marker {
+  color: var(--text-faint);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.workspace-leaf-content[data-type="file-explorer"].file-explorer-pin-managed[data-file-type-marker-style="badge"] .file-explorer-pin-file-type-marker {
+  min-width: 1.45rem;
+  min-height: 1.2rem;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--background-modifier-hover) 70%, transparent 30%);
+}
+
+/* Grid (2-column) layout */
+.file-explorer-pin-status[data-layout="grid"] {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 0.4rem;
+  max-height: min(40vh, 24rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 0;
+}
+
+.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-tab {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-add-tab {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+
+.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-add-tab:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-tab.is-drop-before::before,
+.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-tab.is-drop-after::after {
+  left: 8px;
+  right: 8px;
+  width: auto;
+  height: 2px;
+}
+
+.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-tab.is-drop-before::before {
+  top: -3px;
+  bottom: auto;
+}
+
+.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-tab.is-drop-after::after {
+  top: auto;
+  bottom: -3px;
+}

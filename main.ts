@@ -1,0 +1,2945 @@
+import {
+  App,
+  Menu,
+  Notice,
+  Plugin,
+  PluginSettingTab,
+  Setting,
+  TAbstractFile,
+  TFile,
+  TFolder,
+  WorkspaceLeaf,
+  normalizePath,
+  setIcon,
+} from "obsidian";
+
+const FILE_EXPLORER_VIEW_TYPE = "file-explorer";
+const STATUS_CLASS = "file-explorer-pin-status";
+const MANAGED_EXPLORER_CLASS = "file-explorer-pin-managed";
+const FILE_TYPE_MARKER_CLASS = "file-explorer-pin-file-type-marker";
+const FILE_TYPE_MARKER_ROW_CLASS = "file-explorer-pin-has-file-type-marker";
+const FILE_TYPE_MARKER_STYLE_ATTR = "data-file-type-marker-style";
+const FOLDER_DEPTH_ATTR = "data-fep-depth";
+const FOLDER_WRAPPER_DEPTH_ATTR = "data-fep-folder-depth";
+const ROOT_DROP_PATH_ATTR = "data-fep-root-drop-path";
+const ROOT_DROP_ORIGINAL_PATH_ATTR = "data-fep-original-drop-path";
+const ROOT_DROP_ORIGINAL_NAME_ATTR = "data-fep-original-name";
+const ROOT_DROP_ORIGINAL_TITLE_ATTR = "data-fep-original-title";
+const ROOT_DROP_ORIGINAL_ARIA_LABEL_ATTR = "data-fep-original-aria-label";
+const DEFAULT_TAB_LAYOUT: TabLayout = "grid";
+const DEFAULT_FOLDER_LEVEL_1_WEIGHT: FolderHierarchyWeight = 700;
+const DEFAULT_FOLDER_LEVEL_1_SPACING_PX = 16;
+const DEFAULT_FOLDER_LEVEL_2_SPACING_PX = 0;
+const DEFAULT_FOLDER_LEVEL_1_FONT_SIZE_PX = 16;
+const MIN_FOLDER_LEVEL_1_FONT_SIZE_PX = 12;
+const MAX_FOLDER_LEVEL_1_FONT_SIZE_PX = 24;
+const DEFAULT_FOLDER_LEVEL_1_ICON_SIZE_PX = 18;
+const DEFAULT_FOLDER_LEVEL_1_COLOR = "#000000";
+const DEFAULT_FOLDER_LEVEL_1_USE_BLACK = false;
+const DEFAULT_FILE_TYPE_MARKER_STYLE: FileTypeMarkerStyle = "text";
+const CONTEXT_INFO_MAX_AGE_MS = 2000;
+const TAB_DRAG_THRESHOLD_PX = 6;
+const TAB_EDGE_SCROLL_TRIGGER_PX = 28;
+const TAB_EDGE_SCROLL_STEP_PX = 14;
+const TAB_EDGE_SCROLL_INTERVAL_MS = 16;
+const EMPTY_CANVAS_CONTENT = '{\n\t"nodes":[],\n\t"edges":[]\n}';
+
+type FileTypeMarkerStyle = "text" | "badge";
+type TabLayout = "vertical" | "horizontal" | "grid";
+type FolderHierarchyWeight = 400 | 500 | 600 | 700;
+
+interface PluginSettings {
+  enableDefaultFileExplorerPinning: boolean;
+  showGoUpButton: boolean;
+  tabLayout: TabLayout;
+  folderLevel1Weight: FolderHierarchyWeight;
+  folderLevel1FontSizePx: number;
+  folderLevel1ExpandedSpacingPx: number;
+  folderLevel1UseBlack: boolean;
+  fileTypeMarkerStyle: FileTypeMarkerStyle;
+}
+
+interface PluginData {
+  settings: PluginSettings;
+  persistedLeaves: Record<string, PersistedLeafState | undefined>;
+}
+
+interface FileTypeMarker {
+  label: string;
+}
+
+interface FileExplorerViewState {
+  sortOrder?: string;
+  autoReveal?: boolean;
+}
+
+interface ExplorerSnapshot {
+  expandedPaths: string[];
+  selectedPath: string | null;
+  scrollTop: number;
+}
+
+interface ExplorerTabState {
+  id: string;
+  pinnedRootPath: string | null;
+  viewSnapshot: ExplorerSnapshot | null;
+  restoreSnapshot: ExplorerSnapshot | null;
+}
+
+interface PersistedLeafState {
+  activeTabId: string;
+  tabs: ExplorerTabState[];
+}
+
+interface ContextInfo {
+  controller: FileExplorerPinController;
+  path: string;
+  source: "folder-title" | "pinned-root-blank-area";
+  at: number;
+}
+
+interface InternalExplorerTree {
+  focusedItem?: InternalExplorerItem | null;
+  setFocusedItem?: (item: InternalExplorerItem | null, focus?: boolean) => void;
+}
+
+interface InternalWorkspaceLeaf extends WorkspaceLeaf {
+  id: string;
+}
+
+interface InternalExplorerItem {
+  file: TAbstractFile;
+  selfEl: HTMLElement;
+  setCollapsed?: (collapsed: boolean, animate?: boolean) => Promise<void> | void;
+}
+
+interface InternalFileExplorerView {
+  app: App;
+  containerEl: HTMLElement;
+  navFileContainerEl?: HTMLElement;
+  fileItems?: Record<string, InternalExplorerItem | undefined>;
+  tree?: InternalExplorerTree;
+  getSortedFolderItems?: (folder: TFolder) => TAbstractFile[];
+  sort?: () => void;
+  requestSort?: () => void;
+  onFileOpen?: (file: TFile | null) => void;
+}
+
+interface PatchedMethods {
+  getSortedFolderItems?: (folder: TFolder) => TAbstractFile[];
+  onFileOpen?: (file: TFile | null) => void;
+}
+
+const DEFAULT_SETTINGS: PluginSettings = {
+  enableDefaultFileExplorerPinning: true,
+  showGoUpButton: false,
+  tabLayout: DEFAULT_TAB_LAYOUT,
+  folderLevel1Weight: DEFAULT_FOLDER_LEVEL_1_WEIGHT,
+  folderLevel1FontSizePx: DEFAULT_FOLDER_LEVEL_1_FONT_SIZE_PX,
+  folderLevel1ExpandedSpacingPx: DEFAULT_FOLDER_LEVEL_1_SPACING_PX,
+  folderLevel1UseBlack: DEFAULT_FOLDER_LEVEL_1_USE_BLACK,
+  fileTypeMarkerStyle: DEFAULT_FILE_TYPE_MARKER_STYLE,
+};
+
+const TEXT_FILE_EXTENSIONS = new Set([
+  "log",
+  "markdown",
+  "md",
+  "mdown",
+  "mdtxt",
+  "mdx",
+  "rst",
+  "textbundle",
+]);
+const IMAGE_FILE_EXTENSIONS = new Set([
+  "ai",
+  "avif",
+  "bmp",
+  "eps",
+  "gif",
+  "heic",
+  "heif",
+  "ico",
+  "jpe",
+  "jpeg",
+  "jpg",
+  "png",
+  "psd",
+  "raw",
+  "svg",
+  "tif",
+  "tiff",
+  "webp",
+]);
+const CODE_FILE_EXTENSIONS = new Set([
+  "apk",
+  "bash",
+  "c",
+  "cc",
+  "cjs",
+  "conf",
+  "cpp",
+  "cs",
+  "dart",
+  "diff",
+  "env",
+  "gitignore",
+  "go",
+  "h",
+  "haml",
+  "hpp",
+  "htm",
+  "html",
+  "http",
+  "ipynb",
+  "ini",
+  "ipa",
+  "java",
+  "jinja",
+  "json",
+  "json5",
+  "jsonc",
+  "jsx",
+  "kt",
+  "less",
+  "lock",
+  "mjs",
+  "php",
+  "pl",
+  "properties",
+  "py",
+  "rbw",
+  "rc",
+  "reg",
+  "sass",
+  "scala",
+  "sol",
+  "svelte",
+  "swift",
+  "tex",
+  "tmpl",
+  "tsx",
+  "vue",
+  "wasm",
+  "xhtml",
+  "xsd",
+  "yaml",
+  "yml",
+  "zsh",
+  "toml",
+  "lock",
+  "ps1",
+  "bat",
+  "cmd",
+  "dockerfile",
+  "makefile",
+  "gradle",
+  "r",
+  "lua",
+  "erl",
+  "ex",
+  "exs",
+  "clj",
+  "coffee",
+  "graphql",
+  "prisma",
+  "astro",
+  "elm",
+  "nim",
+  "zig",
+  "tf",
+  "tfvars",
+  "cfg",
+  "csvs",
+  "toml-example",
+  "rb",
+  "rs",
+  "scss",
+  "sh",
+  "sql",
+  "ts",
+  "xml",
+]);
+const ARCHIVE_FILE_EXTENSIONS = new Set([
+  "7z",
+  "bz2",
+  "cab",
+  "gz",
+  "iso",
+  "lz",
+  "lzma",
+  "tar",
+  "tgz",
+  "xz",
+  "zip",
+  "rar",
+]);
+const SPREADSHEET_FILE_EXTENSIONS = new Set(["csv", "ods", "tsv"]);
+const CODE_FILE_BASENAMES = new Set([
+  ".env",
+  ".env.example",
+  ".env.local",
+  ".npmrc",
+  ".prettierrc",
+  "dockerfile",
+  "gemfile",
+  "makefile",
+  "procfile",
+]);
+
+export default class FileExplorerPinPlugin extends Plugin {
+  private settings: PluginSettings = { ...DEFAULT_SETTINGS };
+  private persistedLeaves: Record<string, PersistedLeafState | undefined> = {};
+  private readonly controllers = new Map<WorkspaceLeaf, FileExplorerPinController>();
+  private lastContextInfo: ContextInfo | null = null;
+
+  async onload(): Promise<void> {
+    await this.loadSettings();
+
+    this.addSettingTab(new FileExplorerPinSettingTab(this.app, this));
+    this.addCommand({
+      id: "open-another-file-explorer",
+      name: "Open another Folder Pin explorer",
+      callback: async () => {
+        await this.openAnotherFileExplorer();
+      },
+    });
+
+    this.app.workspace.onLayoutReady(() => this.syncControllers());
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.syncControllers()));
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file, source) => {
+        if (
+          !this.settings.enableDefaultFileExplorerPinning ||
+          source !== "file-explorer-context-menu" ||
+          !(file instanceof TFolder)
+        ) {
+          return;
+        }
+
+        const info = this.lastContextInfo;
+        if (
+          !info ||
+          info.path !== file.path ||
+          info.source !== "folder-title" ||
+          Date.now() - info.at > CONTEXT_INFO_MAX_AGE_MS
+        ) {
+          return;
+        }
+
+        menu.addItem((item) => {
+          item
+            .setTitle("Pin this folder here")
+            .setIcon("pin")
+            .onClick(() => {
+              void info.controller.pin(file.path);
+            });
+        });
+      }),
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        for (const controller of this.controllers.values()) {
+          controller.handleRename(oldPath, file.path);
+        }
+      }),
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        for (const controller of this.controllers.values()) {
+          controller.handleDelete(file.path);
+        }
+      }),
+    );
+
+    this.syncControllers();
+  }
+
+  onunload(): void {
+    this.lastContextInfo = null;
+    for (const controller of this.controllers.values()) {
+      controller.detach();
+    }
+    this.controllers.clear();
+  }
+
+  async updateSettings(partial: Partial<PluginSettings>): Promise<void> {
+    this.settings = {
+      ...this.settings,
+      ...partial,
+    };
+    await this.savePluginData();
+    this.syncControllers();
+  }
+
+  getPersistedLeafState(leafId: string): PersistedLeafState | null {
+    const state = this.persistedLeaves[leafId];
+    return state ? clonePersistedLeafState(state) : null;
+  }
+
+  async setPersistedLeafState(
+    leafId: string,
+    state: PersistedLeafState | null,
+  ): Promise<void> {
+    if (state) {
+      this.persistedLeaves[leafId] = clonePersistedLeafState(state);
+    } else {
+      delete this.persistedLeaves[leafId];
+    }
+
+    await this.savePluginData();
+  }
+
+  noteContextTarget(
+    controller: FileExplorerPinController,
+    path: string,
+    source: ContextInfo["source"],
+  ): void {
+    this.lastContextInfo = {
+      controller,
+      path,
+      source,
+      at: Date.now(),
+    };
+  }
+
+  isEnabled(): boolean {
+    return this.settings.enableDefaultFileExplorerPinning;
+  }
+
+  shouldShowGoUpButton(): boolean {
+    return this.settings.showGoUpButton;
+  }
+
+  getTabLayout(): TabLayout {
+    return normalizeTabLayout(this.settings.tabLayout);
+  }
+
+  getFolderLevelWeight(level: 1 | 2): FolderHierarchyWeight {
+    if (level === 2) {
+      return 400;
+    }
+
+    return normalizeFolderHierarchyWeight(
+      this.settings.folderLevel1Weight,
+      DEFAULT_SETTINGS.folderLevel1Weight,
+    );
+  }
+
+  getFolderLevel1FontSizePx(): number {
+    return normalizeFolderFontSizePx(
+      this.settings.folderLevel1FontSizePx,
+      DEFAULT_SETTINGS.folderLevel1FontSizePx,
+    );
+  }
+
+  getFolderExpandedSpacingPx(level: 1 | 2): number {
+    return level === 1
+      ? normalizeFolderSpacingPx(
+          this.settings.folderLevel1ExpandedSpacingPx,
+          DEFAULT_SETTINGS.folderLevel1ExpandedSpacingPx,
+        )
+      : DEFAULT_FOLDER_LEVEL_2_SPACING_PX;
+  }
+
+  isFolderLevelBlackEnabled(level: 1 | 2): boolean {
+    if (level === 2) {
+      return false;
+    }
+
+    return typeof this.settings.folderLevel1UseBlack === "boolean"
+      ? this.settings.folderLevel1UseBlack
+      : false;
+  }
+
+  getFileTypeMarkerStyle(): FileTypeMarkerStyle {
+    return normalizeFileTypeMarkerStyle(this.settings.fileTypeMarkerStyle);
+  }
+
+  getFileTypeMarker(file: TAbstractFile): FileTypeMarker | null {
+    if (file instanceof TFolder) {
+      return null;
+    }
+
+    const extension = file.extension.trim().toUpperCase();
+    if (!extension) {
+      return null;
+    }
+
+    return {
+      label: extension,
+    };
+  }
+
+  private async openAnotherFileExplorer(): Promise<void> {
+    const leaf = this.app.workspace.getLeftLeaf(false);
+    if (!leaf) {
+      new Notice("Could not open another file explorer in the left sidebar.");
+      return;
+    }
+
+    const state = this.getDefaultExplorerState();
+    await leaf.setViewState({
+      type: FILE_EXPLORER_VIEW_TYPE,
+      active: true,
+      state: state as Record<string, unknown>,
+    });
+    await this.app.workspace.revealLeaf(leaf);
+    this.syncControllers();
+  }
+
+  private syncControllers(): void {
+    const activeLeaves = new Set(this.app.workspace.getLeavesOfType(FILE_EXPLORER_VIEW_TYPE));
+
+    for (const [leaf, controller] of this.controllers.entries()) {
+      if (!activeLeaves.has(leaf) || !this.isEnabled()) {
+        controller.detach();
+        this.controllers.delete(leaf);
+      }
+    }
+
+    if (!this.isEnabled()) {
+      return;
+    }
+
+    if (this.app.workspace.layoutReady) {
+      const activeLeafIds = new Set(Array.from(activeLeaves, (leaf) => getLeafId(leaf)));
+      void this.prunePersistedLeaves(activeLeafIds);
+    }
+
+    for (const leaf of activeLeaves) {
+      const view = leaf.view as InternalFileExplorerView;
+      if (!isInternalFileExplorerView(view)) {
+        continue;
+      }
+
+      const existing = this.controllers.get(leaf);
+      if (existing) {
+        existing.refreshUi();
+        continue;
+      }
+
+      const controller = new FileExplorerPinController(this, leaf, view);
+      controller.attach();
+      this.controllers.set(leaf, controller);
+    }
+  }
+
+  private async loadSettings(): Promise<void> {
+    const raw = await this.loadData();
+    const parsed = parsePluginData(raw);
+    this.settings = parsed.settings;
+    this.persistedLeaves = parsed.persistedLeaves;
+  }
+
+  private async savePluginData(): Promise<void> {
+    await this.saveData({
+      settings: this.settings,
+      persistedLeaves: this.persistedLeaves,
+    } satisfies PluginData);
+  }
+
+  private async prunePersistedLeaves(activeLeafIds: Set<string>): Promise<void> {
+    if (!this.app.workspace.layoutReady) {
+      return;
+    }
+
+    let changed = false;
+
+    for (const leafId of Object.keys(this.persistedLeaves)) {
+      if (activeLeafIds.has(leafId) || this.app.workspace.getLeafById(leafId)) {
+        continue;
+      }
+
+      delete this.persistedLeaves[leafId];
+      changed = true;
+    }
+
+    if (changed) {
+      await this.savePluginData();
+    }
+  }
+
+  private getDefaultExplorerState(): FileExplorerViewState {
+    for (const leaf of this.app.workspace.getLeavesOfType(FILE_EXPLORER_VIEW_TYPE)) {
+      const state = leaf.getViewState().state;
+      if (!isRecord(state)) {
+        continue;
+      }
+
+      const nextState: FileExplorerViewState = {};
+      if (typeof state.sortOrder === "string") {
+        nextState.sortOrder = state.sortOrder;
+      }
+      if (typeof state.autoReveal === "boolean") {
+        nextState.autoReveal = state.autoReveal;
+      }
+      return nextState;
+    }
+
+    return {};
+  }
+}
+
+class FileExplorerPinController {
+  private readonly plugin: FileExplorerPinPlugin;
+  private readonly leaf: WorkspaceLeaf;
+  private readonly view: InternalFileExplorerView;
+  private readonly rootPath: string;
+  private readonly patched: PatchedMethods = {};
+  private statusEl: HTMLDivElement | null = null;
+  private contextMenuHandler: ((event: MouseEvent) => void) | null = null;
+  private interactionHandler: ((event: Event) => void) | null = null;
+  private fileDragStartHandler: ((event: DragEvent) => void) | null = null;
+  private fileDragEndHandler: ((event: DragEvent) => void) | null = null;
+  private fileDropHandler: ((event: DragEvent) => void) | null = null;
+  private dragOverlayObserver: MutationObserver | null = null;
+  private fileTypeIconObserver: MutationObserver | null = null;
+  private fileTypeIconRenderQueued = false;
+  private restoring = false;
+  private tabs: ExplorerTabState[] = [];
+  private activeTabId: string | null = null;
+  private snapshotSaveTimer: number | null = null;
+  private dragPointerId: number | null = null;
+  private dragCandidateTabId: string | null = null;
+  private draggingTabId: string | null = null;
+  private dragStartX = 0;
+  private dragStartY = 0;
+  private dragCurrentX = 0;
+  private dragCurrentY = 0;
+  private dragDropIndex: number | null = null;
+  private suppressNextTabClick = false;
+  private edgeScrollTimer: number | null = null;
+  private edgeScrollDirection = 0;
+  private draggedExplorerPaths: string[] = [];
+  private rootDragContextItem: InternalExplorerItem | null = null;
+  private rootDragContextOriginalFile: TAbstractFile | null = null;
+  private rootDragContextAliasPath: string | null = null;
+  private readonly handleTabPointerMove = (event: PointerEvent): void => {
+    if (event.pointerId !== this.dragPointerId || this.dragCandidateTabId === null) {
+      return;
+    }
+
+    this.dragCurrentX = event.clientX;
+    this.dragCurrentY = event.clientY;
+    const deltaX = event.clientX - this.dragStartX;
+    const deltaY = event.clientY - this.dragStartY;
+    const movedFarEnough =
+      Math.abs(deltaX) >= TAB_DRAG_THRESHOLD_PX || Math.abs(deltaY) >= TAB_DRAG_THRESHOLD_PX;
+
+    if (this.draggingTabId === null) {
+      if (!movedFarEnough) {
+        return;
+      }
+
+      this.draggingTabId = this.dragCandidateTabId;
+      this.dragDropIndex = this.computeDropIndex(event.clientX, event.clientY, this.draggingTabId);
+      this.syncDragIndicators();
+    } else {
+      this.dragDropIndex = this.computeDropIndex(event.clientX, event.clientY, this.draggingTabId);
+      this.syncDragIndicators();
+    }
+
+    event.preventDefault();
+    this.updateEdgeScroll(event.clientX, event.clientY, this.draggingTabId);
+  };
+  private readonly handleTabPointerUp = (event: PointerEvent): void => {
+    if (event.pointerId !== this.dragPointerId) {
+      return;
+    }
+
+    const draggingTabId = this.draggingTabId;
+    if (draggingTabId !== null) {
+      event.preventDefault();
+      void this.finishTabPointerDrag(draggingTabId);
+      return;
+    }
+
+    this.resetTabDragState();
+  };
+  private readonly handleTabPointerCancel = (): void => {
+    this.resetTabDragState();
+  };
+
+  constructor(
+    plugin: FileExplorerPinPlugin,
+    leaf: WorkspaceLeaf,
+    view: InternalFileExplorerView,
+  ) {
+    this.plugin = plugin;
+    this.leaf = leaf;
+    this.view = view;
+    this.rootPath = this.view.app.vault.getRoot().path;
+  }
+
+  attach(): void {
+    this.hydratePersistedState();
+    this.patchView();
+    this.view.containerEl.classList.add(MANAGED_EXPLORER_CLASS);
+    this.bindContextTracking();
+    this.bindInteractionTracking();
+    this.bindExplorerDragDrop();
+    this.bindFileTypeIconRendering();
+    this.refreshUi();
+    void this.restoreCurrentTabView();
+  }
+
+  detach(): void {
+    if (this.patched.getSortedFolderItems) {
+      this.view.getSortedFolderItems = this.patched.getSortedFolderItems;
+    }
+    if (this.patched.onFileOpen) {
+      this.view.onFileOpen = this.patched.onFileOpen;
+    }
+
+    if (this.contextMenuHandler) {
+      this.view.containerEl.removeEventListener("contextmenu", this.contextMenuHandler, true);
+      this.contextMenuHandler = null;
+    }
+    if (this.interactionHandler) {
+      this.view.containerEl.removeEventListener("click", this.interactionHandler, true);
+      this.view.containerEl.removeEventListener("scroll", this.interactionHandler, true);
+      this.interactionHandler = null;
+    }
+    if (this.fileDragStartHandler) {
+      this.view.containerEl.removeEventListener("dragstart", this.fileDragStartHandler, true);
+      this.fileDragStartHandler = null;
+    }
+    if (this.fileDragEndHandler) {
+      this.view.containerEl.removeEventListener("dragend", this.fileDragEndHandler, true);
+      this.fileDragEndHandler = null;
+    }
+    if (this.fileDropHandler) {
+      this.view.containerEl.removeEventListener("drop", this.fileDropHandler, true);
+      this.fileDropHandler = null;
+    }
+    if (this.dragOverlayObserver) {
+      this.dragOverlayObserver.disconnect();
+      this.dragOverlayObserver = null;
+    }
+    if (this.fileTypeIconObserver) {
+      this.fileTypeIconObserver.disconnect();
+      this.fileTypeIconObserver = null;
+    }
+    if (this.snapshotSaveTimer !== null) {
+      window.clearTimeout(this.snapshotSaveTimer);
+      this.snapshotSaveTimer = null;
+    }
+    this.resetTabDragState();
+    this.draggedExplorerPaths = [];
+
+    this.statusEl?.remove();
+    this.statusEl = null;
+    this.clearExplorerDecorations();
+    this.restoreRootDragContext();
+    this.view.containerEl.removeAttribute(FILE_TYPE_MARKER_STYLE_ATTR);
+    this.view.containerEl.classList.remove(MANAGED_EXPLORER_CLASS);
+    this.tabs = [];
+    this.activeTabId = null;
+  }
+
+  refreshUi(): void {
+    this.ensureTabs();
+    this.renderStatus();
+    this.view.containerEl.setAttribute(FILE_TYPE_MARKER_STYLE_ATTR, this.plugin.getFileTypeMarkerStyle());
+    this.refreshView();
+    this.syncRootDragContext();
+    this.scheduleFileTypeIconRender();
+  }
+
+  async pin(folderPath: string): Promise<void> {
+    const folder = this.getFolder(folderPath);
+    if (!folder) {
+      new Notice(`Folder not found: ${folderPath}`);
+      return;
+    }
+
+    if (folder.path === this.rootPath) {
+      return;
+    }
+
+    const activeTab = this.ensureActiveTab();
+    if (activeTab.pinnedRootPath === folder.path) {
+      return;
+    }
+
+    const currentSnapshot = this.captureNormalizedSnapshotForTab(activeTab);
+    if (activeTab.pinnedRootPath === null && activeTab.restoreSnapshot === null) {
+      activeTab.restoreSnapshot = cloneExplorerSnapshot(currentSnapshot);
+    }
+    activeTab.pinnedRootPath = folder.path;
+    activeTab.viewSnapshot = this.createSnapshotForRoot(folder.path, currentSnapshot);
+    await this.persistState();
+    this.renderStatus();
+    this.refreshView();
+    await this.restoreCurrentTabView();
+  }
+
+  async unpin(): Promise<void> {
+    const activeTab = this.getActiveTab();
+    if (!activeTab || activeTab.pinnedRootPath === null) {
+      return;
+    }
+
+    const restoreSnapshot = activeTab.restoreSnapshot
+      ? cloneExplorerSnapshot(activeTab.restoreSnapshot)
+      : createEmptySnapshot();
+    activeTab.pinnedRootPath = null;
+    activeTab.viewSnapshot = restoreSnapshot;
+    activeTab.restoreSnapshot = null;
+    await this.persistState();
+    this.renderStatus();
+    this.refreshView();
+    await this.restoreCurrentTabView();
+  }
+
+  async goUpOneLevel(): Promise<void> {
+    const activeTab = this.getActiveTab();
+    if (!activeTab || activeTab.pinnedRootPath === null) {
+      return;
+    }
+
+    const parentFolder = this.getPinnedParentFolder();
+    if (!parentFolder) {
+      await this.unpin();
+      return;
+    }
+
+    if (activeTab.pinnedRootPath === parentFolder.path) {
+      return;
+    }
+
+    const currentSnapshot = this.captureNormalizedSnapshotForTab(activeTab);
+    activeTab.pinnedRootPath = parentFolder.path;
+    activeTab.viewSnapshot = this.createSnapshotForRoot(parentFolder.path, currentSnapshot);
+    await this.persistState();
+    this.renderStatus();
+    this.refreshView();
+    await this.restoreCurrentTabView();
+  }
+
+  handleRename(oldPath: string, newPath: string): void {
+    let changed = false;
+
+    for (const tab of this.tabs) {
+      if (tab.pinnedRootPath) {
+        const rewrittenRoot = rewritePathPrefix(tab.pinnedRootPath, oldPath, newPath);
+        if (rewrittenRoot !== tab.pinnedRootPath) {
+          tab.pinnedRootPath = rewrittenRoot;
+          changed = true;
+        }
+      }
+
+      if (tab.viewSnapshot) {
+        const nextSnapshot = rewriteSnapshotPaths(tab.viewSnapshot, oldPath, newPath);
+        if (!areSnapshotsEqual(tab.viewSnapshot, nextSnapshot)) {
+          changed = true;
+        }
+        tab.viewSnapshot = nextSnapshot;
+      }
+
+      if (tab.restoreSnapshot) {
+        const nextSnapshot = rewriteSnapshotPaths(tab.restoreSnapshot, oldPath, newPath);
+        if (!areSnapshotsEqual(tab.restoreSnapshot, nextSnapshot)) {
+          changed = true;
+        }
+        tab.restoreSnapshot = nextSnapshot;
+      }
+    }
+
+    if (changed) {
+      void this.persistState();
+    }
+
+    this.renderStatus();
+    this.refreshView();
+  }
+
+  handleDelete(deletedPath: string): void {
+    if (this.tabs.length === 0) {
+      return;
+    }
+
+    let changed = false;
+    for (const tab of this.tabs) {
+      if (!tab.pinnedRootPath || !isDescendantPath(tab.pinnedRootPath, deletedPath)) {
+        continue;
+      }
+
+      tab.pinnedRootPath = null;
+      tab.viewSnapshot = tab.restoreSnapshot
+        ? cloneExplorerSnapshot(tab.restoreSnapshot)
+        : createEmptySnapshot();
+      tab.restoreSnapshot = null;
+      changed = true;
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    void this.persistState();
+    this.renderStatus();
+    this.refreshView();
+    void this.restoreCurrentTabView();
+  }
+
+  private patchView(): void {
+    if (typeof this.view.getSortedFolderItems === "function") {
+      const original = this.view.getSortedFolderItems.bind(this.view);
+      this.patched.getSortedFolderItems = original;
+      this.view.getSortedFolderItems = (folder: TFolder) => {
+        const pinnedRoot = this.getPinnedRoot();
+        if (!pinnedRoot || folder.path !== this.rootPath) {
+          return original(folder);
+        }
+
+        return original(pinnedRoot);
+      };
+    }
+
+    if (typeof this.view.onFileOpen === "function") {
+      const original = this.view.onFileOpen.bind(this.view);
+      this.patched.onFileOpen = original;
+      this.view.onFileOpen = (file: TFile | null) => {
+        const pinnedRoot = this.getPinnedRoot();
+        if (
+          pinnedRoot &&
+          file &&
+          !isDescendantPath(file.path, pinnedRoot.path)
+        ) {
+          return;
+        }
+
+        original(file);
+      };
+    }
+  }
+
+  private hydratePersistedState(): void {
+    const persisted = this.plugin.getPersistedLeafState(getLeafId(this.leaf));
+    if (!persisted) {
+      this.tabs = [createRootTabState()];
+      this.activeTabId = this.tabs[0].id;
+      return;
+    }
+
+    const tabs = persisted.tabs
+      .map((tab) => this.sanitizeTabState(tab))
+      .filter((tab): tab is ExplorerTabState => tab !== null);
+
+    if (tabs.length === 0) {
+      this.tabs = [createRootTabState()];
+      this.activeTabId = this.tabs[0].id;
+      void this.plugin.setPersistedLeafState(getLeafId(this.leaf), {
+        activeTabId: this.activeTabId,
+        tabs: this.tabs,
+      });
+      return;
+    }
+
+    this.tabs = tabs;
+    this.activeTabId =
+      tabs.some((tab) => tab.id === persisted.activeTabId) ? persisted.activeTabId : tabs[0].id;
+  }
+
+  private bindContextTracking(): void {
+    this.contextMenuHandler = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      const titleEl = target.closest<HTMLElement>(".nav-folder-title[data-path]");
+      const path = titleEl?.dataset.path;
+      if (!path) {
+        if (getExplorerItemPathFromElement(target) !== null) {
+          return;
+        }
+
+        const containerEl = target.closest<HTMLElement>(".nav-files-container");
+        const hierarchyRootPath = this.getHierarchyRootPath();
+        if (!containerEl || hierarchyRootPath === this.rootPath) {
+          return;
+        }
+
+        const folder = this.getFolder(hierarchyRootPath);
+        if (!folder) {
+          return;
+        }
+
+        this.plugin.noteContextTarget(this, folder.path, "pinned-root-blank-area");
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.showNativeFolderMenu(event, folder);
+        return;
+      }
+
+      this.plugin.noteContextTarget(this, path, "folder-title");
+    };
+
+    this.view.containerEl.addEventListener("contextmenu", this.contextMenuHandler, true);
+  }
+
+  private showNativeFolderMenu(event: MouseEvent, folder: TFolder): void {
+    const menu = new Menu();
+    this.view.app.workspace.trigger("file-menu", menu, folder, "file-explorer-context-menu");
+    menu.showAtMouseEvent(event);
+  }
+
+  private bindFileTypeIconRendering(): void {
+    if (this.fileTypeIconObserver) {
+      return;
+    }
+
+    this.fileTypeIconObserver = new MutationObserver(() => {
+      this.scheduleFileTypeIconRender();
+    });
+    this.fileTypeIconObserver.observe(this.view.containerEl, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
+  private bindInteractionTracking(): void {
+    this.interactionHandler = () => {
+      this.scheduleActiveTabSnapshotSave();
+    };
+
+    this.view.containerEl.addEventListener("click", this.interactionHandler, true);
+    this.view.containerEl.addEventListener("scroll", this.interactionHandler, true);
+  }
+
+  private bindExplorerDragDrop(): void {
+    if (this.fileDragStartHandler || this.fileDragEndHandler || this.fileDropHandler) {
+      return;
+    }
+
+    this.fileDragStartHandler = (event: DragEvent) => {
+      this.draggedExplorerPaths = this.getDraggedExplorerPathsFromEventTarget(event.target);
+      this.startDragOverlayObserver();
+    };
+    this.fileDragEndHandler = () => {
+      this.draggedExplorerPaths = [];
+      this.stopDragOverlayObserver();
+    };
+    this.fileDropHandler = (event: DragEvent) => {
+      void this.handleExplorerDrop(event);
+    };
+
+    this.view.containerEl.addEventListener("dragstart", this.fileDragStartHandler, true);
+    this.view.containerEl.addEventListener("dragend", this.fileDragEndHandler, true);
+    this.view.containerEl.addEventListener("drop", this.fileDropHandler, true);
+  }
+
+  private getDraggedExplorerPathsFromEventTarget(target: EventTarget | null): string[] {
+    if (!(target instanceof HTMLElement)) {
+      return [];
+    }
+
+    const sourcePath = getExplorerItemPathFromElement(target);
+    if (!sourcePath) {
+      return [];
+    }
+
+    const selectedPaths = Array.from(
+      this.view.containerEl.querySelectorAll<HTMLElement>(
+        ".nav-file-title.is-selected[data-path], .nav-folder-title.is-selected[data-path]",
+      ),
+    )
+      .map((element) => element.dataset.path)
+      .filter((path): path is string => typeof path === "string" && path.length > 0);
+
+    if (selectedPaths.includes(sourcePath)) {
+      return uniquePaths(selectedPaths);
+    }
+
+    return [sourcePath];
+  }
+
+  private async handleExplorerDrop(event: DragEvent): Promise<void> {
+    if (this.draggedExplorerPaths.length === 0) {
+      return;
+    }
+
+    const activeRootPath = this.getHierarchyRootPath();
+    if (activeRootPath === this.rootPath) {
+      return;
+    }
+
+    const targetPath = getExplorerItemPathFromElement(event.target);
+    if (targetPath !== null && targetPath !== this.rootPath) {
+      return;
+    }
+
+    const targetFolder = this.getFolder(activeRootPath);
+    if (!targetFolder) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    try {
+      await this.moveDraggedExplorerItems(targetFolder.path);
+    } finally {
+      this.draggedExplorerPaths = [];
+      this.stopDragOverlayObserver();
+    }
+  }
+
+  private startDragOverlayObserver(): void {
+    const pinnedRoot = this.getPinnedRoot();
+    if (!pinnedRoot || pinnedRoot.path === this.rootPath) {
+      this.stopDragOverlayObserver();
+      return;
+    }
+
+    if (!this.dragOverlayObserver) {
+      this.dragOverlayObserver = new MutationObserver((mutations) => {
+        this.syncDragOverlayRootName(mutations);
+      });
+      this.dragOverlayObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    }
+
+    this.syncDragOverlayRootName();
+  }
+
+  private stopDragOverlayObserver(): void {
+    if (!this.dragOverlayObserver) {
+      return;
+    }
+
+    this.dragOverlayObserver.disconnect();
+    this.dragOverlayObserver = null;
+  }
+
+  private syncDragOverlayRootName(mutations?: MutationRecord[]): void {
+    const pinnedRoot = this.getPinnedRoot();
+    if (!pinnedRoot || pinnedRoot.path === this.rootPath) {
+      return;
+    }
+
+    const rootName = this.view.app.vault.getRoot().name;
+    if (!rootName || rootName === pinnedRoot.name) {
+      return;
+    }
+
+    if (!mutations || mutations.length === 0) {
+      replaceRootNameInFloatingNodes(document.body, rootName, pinnedRoot.name, this.view.containerEl);
+      return;
+    }
+
+    for (const mutation of mutations) {
+      if (mutation.type === "characterData") {
+        replaceRootNameInFloatingNodes(mutation.target, rootName, pinnedRoot.name, this.view.containerEl);
+        continue;
+      }
+
+      for (const node of Array.from(mutation.addedNodes)) {
+        replaceRootNameInFloatingNodes(node, rootName, pinnedRoot.name, this.view.containerEl);
+      }
+    }
+  }
+
+  private syncRootDragContext(): void {
+    const pinnedRoot = this.getPinnedRoot();
+    if (!pinnedRoot) {
+      this.restoreRootDragContext();
+      return;
+    }
+
+    const rootItem = this.view.fileItems?.[this.rootPath] ?? null;
+    if (rootItem && this.rootDragContextOriginalFile === null) {
+      this.rootDragContextOriginalFile = rootItem.file;
+    }
+
+    if (rootItem) {
+      this.rootDragContextItem = rootItem;
+      rootItem.file = pinnedRoot;
+      this.installRootItemAlias(rootItem, pinnedRoot.path);
+    }
+
+    for (const element of this.getRootDragContextElements(rootItem)) {
+      overrideRootDropPath(element, pinnedRoot.path);
+    }
+
+    for (const element of this.getRootDragContextLabelElements(rootItem)) {
+      overrideRootDisplayName(element, pinnedRoot.name);
+    }
+  }
+
+  private restoreRootDragContext(): void {
+    const rootItem = this.rootDragContextItem ?? this.view.fileItems?.[this.rootPath] ?? null;
+    if (rootItem && this.rootDragContextOriginalFile) {
+      rootItem.file = this.rootDragContextOriginalFile;
+    }
+
+    if (this.rootDragContextAliasPath && this.view.fileItems) {
+      const aliasedItem = this.view.fileItems[this.rootDragContextAliasPath];
+      if (aliasedItem === this.rootDragContextItem) {
+        delete this.view.fileItems[this.rootDragContextAliasPath];
+      }
+    }
+
+    for (const element of this.getRootDragContextElements(rootItem)) {
+      restoreRootDropPath(element);
+    }
+
+    for (const element of this.getRootDragContextLabelElements(rootItem)) {
+      restoreRootDisplayName(element);
+    }
+
+    this.rootDragContextItem = null;
+    this.rootDragContextOriginalFile = null;
+    this.rootDragContextAliasPath = null;
+  }
+
+  private installRootItemAlias(rootItem: InternalExplorerItem, aliasPath: string): void {
+    if (!this.view.fileItems) {
+      this.rootDragContextAliasPath = aliasPath;
+      return;
+    }
+
+    if (
+      this.rootDragContextAliasPath &&
+      this.rootDragContextAliasPath !== aliasPath &&
+      this.view.fileItems[this.rootDragContextAliasPath] === rootItem
+    ) {
+      delete this.view.fileItems[this.rootDragContextAliasPath];
+    }
+
+    this.view.fileItems[aliasPath] = rootItem;
+    this.rootDragContextAliasPath = aliasPath;
+  }
+
+  private getRootDragContextElements(rootItem: InternalExplorerItem | null): HTMLElement[] {
+    const elements = new Set<HTMLElement>();
+    const scrollContainer = this.getScrollContainer();
+    if (scrollContainer) {
+      elements.add(scrollContainer);
+    }
+
+    if (rootItem?.selfEl) {
+      elements.add(rootItem.selfEl);
+
+      const rootRow = rootItem.selfEl.closest<HTMLElement>(".tree-item-self");
+      if (rootRow) {
+        elements.add(rootRow);
+      }
+
+      const rootFolder = rootItem.selfEl.closest<HTMLElement>(".nav-folder");
+      if (rootFolder) {
+        elements.add(rootFolder);
+      }
+    }
+
+    for (const selector of [
+      ".nav-folder.mod-root",
+      ".nav-folder.mod-root > .nav-folder-title",
+      ".tree-item.mod-root",
+      ".tree-item-self.mod-root",
+      ".nav-files-container",
+    ]) {
+      for (const element of Array.from(this.view.containerEl.querySelectorAll<HTMLElement>(selector))) {
+        elements.add(element);
+      }
+    }
+
+    return Array.from(elements);
+  }
+
+  private getRootDragContextLabelElements(rootItem: InternalExplorerItem | null): HTMLElement[] {
+    const elements = new Set<HTMLElement>();
+
+    if (rootItem?.selfEl) {
+      for (const selector of [".nav-folder-title-content", ".tree-item-inner"]) {
+        const element = rootItem.selfEl.matches(selector)
+          ? rootItem.selfEl
+          : rootItem.selfEl.querySelector<HTMLElement>(selector);
+        if (element) {
+          elements.add(element);
+        }
+      }
+    }
+
+    for (const selector of [
+      ".nav-folder.mod-root > .nav-folder-title .nav-folder-title-content",
+      ".tree-item-self.mod-root .tree-item-inner",
+    ]) {
+      for (const element of Array.from(this.view.containerEl.querySelectorAll<HTMLElement>(selector))) {
+        elements.add(element);
+      }
+    }
+
+    return Array.from(elements);
+  }
+
+  private async moveDraggedExplorerItems(targetFolderPath: string): Promise<void> {
+    for (const path of uniquePaths(this.draggedExplorerPaths)) {
+      const file = this.view.app.vault.getAbstractFileByPath(path);
+      if (!file) {
+        continue;
+      }
+
+      if (getParentPath(path) === targetFolderPath) {
+        continue;
+      }
+
+      if (
+        file instanceof TFolder &&
+        targetFolderPath !== file.path &&
+        isDescendantPath(targetFolderPath, file.path)
+      ) {
+        new Notice(`Cannot move folder into itself: ${file.name}`);
+        continue;
+      }
+
+      const nextPath = joinVaultPath(targetFolderPath, file.name);
+      if (file.path === nextPath) {
+        continue;
+      }
+
+      try {
+        await this.view.app.fileManager.renameFile(file, nextPath);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        new Notice(`Failed to move ${file.name}: ${message}`);
+      }
+    }
+  }
+
+  private scheduleFileTypeIconRender(): void {
+    if (this.fileTypeIconRenderQueued) {
+      return;
+    }
+
+    this.fileTypeIconRenderQueued = true;
+    window.requestAnimationFrame(() => {
+      this.fileTypeIconRenderQueued = false;
+      this.renderExplorerDecorations();
+    });
+  }
+
+  private renderExplorerDecorations(): void {
+    this.syncRootDragContext();
+    this.clearHierarchyDecorations();
+
+    const handledContainers = new Set<HTMLElement>();
+    const activeRootPath = this.getHierarchyRootPath();
+
+    for (const item of Object.values(this.view.fileItems ?? {})) {
+      if (
+        !item ||
+        !(item.file instanceof TFile || item.file instanceof TFolder) ||
+        !item.selfEl.isConnected
+      ) {
+        continue;
+      }
+
+      handledContainers.add(item.selfEl);
+      this.syncFileTypeMarker(item.selfEl, this.plugin.getFileTypeMarker(item.file));
+      this.syncFolderHierarchyDecoration(item, activeRootPath);
+    }
+
+    for (const titleEl of Array.from(
+      this.view.containerEl.querySelectorAll<HTMLElement>(".nav-folder-title[data-path]"),
+    )) {
+      if (handledContainers.has(titleEl)) {
+        continue;
+      }
+
+      const path = titleEl.dataset.path;
+      const folder = path ? this.getFolder(path) : null;
+      if (!folder) {
+        continue;
+      }
+
+      handledContainers.add(titleEl);
+      this.syncFolderHierarchyDecoration(
+        {
+          file: folder,
+          selfEl: titleEl,
+        },
+        activeRootPath,
+      );
+    }
+
+    for (const markerEl of Array.from(this.view.containerEl.querySelectorAll<HTMLElement>(`.${FILE_TYPE_MARKER_CLASS}`))) {
+      const owner = markerEl.parentElement;
+      if (!owner) {
+        markerEl.remove();
+        continue;
+      }
+
+      if (handledContainers.has(owner)) {
+        continue;
+      }
+
+      markerEl.remove();
+    }
+  }
+
+  private syncFolderHierarchyDecoration(
+    item: InternalExplorerItem,
+    activeRootPath: string,
+  ): void {
+    const rowEl = item.selfEl;
+    const rowShellEl = rowEl.closest<HTMLElement>(".tree-item-self") ?? rowEl;
+    if (!(item.file instanceof TFolder)) {
+      return;
+    }
+
+    const depth = getRelativeFolderDepth(item.file.path, activeRootPath);
+    if (depth !== 1 && depth !== 2) {
+      return;
+    }
+
+    rowEl.setAttribute(FOLDER_DEPTH_ATTR, String(depth));
+    rowShellEl.setAttribute(FOLDER_DEPTH_ATTR, String(depth));
+    const fontWeight = String(this.plugin.getFolderLevelWeight(depth));
+    const rowElements = [rowEl, rowShellEl];
+    for (const element of rowElements) {
+      element.style.setProperty("--nav-item-weight", fontWeight);
+      element.style.setProperty("--nav-item-weight-hover", fontWeight);
+      element.style.setProperty("--nav-item-weight-active", fontWeight);
+      element.style.setProperty("font-weight", fontWeight);
+    }
+
+    if (depth === 1) {
+      const fontSize = `${this.plugin.getFolderLevel1FontSizePx()}px`;
+      const iconSize = `${DEFAULT_FOLDER_LEVEL_1_ICON_SIZE_PX}px`;
+      for (const element of rowElements) {
+        element.style.setProperty("--nav-item-size", fontSize);
+        element.style.setProperty("--icon-size", iconSize);
+        element.style.setProperty("font-size", fontSize);
+      }
+    }
+
+    if (this.plugin.isFolderLevelBlackEnabled(depth)) {
+      for (const element of rowElements) {
+        element.style.setProperty("--nav-item-color", DEFAULT_FOLDER_LEVEL_1_COLOR);
+        element.style.setProperty("--nav-item-color-hover", DEFAULT_FOLDER_LEVEL_1_COLOR);
+        element.style.setProperty("--nav-item-color-active", DEFAULT_FOLDER_LEVEL_1_COLOR);
+        element.style.setProperty("--nav-item-color-selected", DEFAULT_FOLDER_LEVEL_1_COLOR);
+        element.style.setProperty("--nav-collapse-icon-color", DEFAULT_FOLDER_LEVEL_1_COLOR);
+        element.style.setProperty("--nav-collapse-icon-color-collapsed", DEFAULT_FOLDER_LEVEL_1_COLOR);
+        element.style.setProperty("--icon-color", DEFAULT_FOLDER_LEVEL_1_COLOR);
+        element.style.setProperty("color", DEFAULT_FOLDER_LEVEL_1_COLOR);
+      }
+    }
+
+    const folderWrapper = rowEl.closest<HTMLElement>(".nav-folder");
+    if (!folderWrapper) {
+      return;
+    }
+
+    folderWrapper.setAttribute(FOLDER_WRAPPER_DEPTH_ATTR, String(depth));
+    const spacingPx = this.plugin.getFolderExpandedSpacingPx(depth);
+    const spacing = `${spacingPx}px`;
+    folderWrapper.style.setProperty("margin-top", spacing);
+    folderWrapper.style.setProperty("margin-bottom", spacing);
+  }
+
+  private syncFileTypeMarker(containerEl: HTMLElement, marker: FileTypeMarker | null): void {
+    const existingMarkerEl = findDirectChildByClass(containerEl, FILE_TYPE_MARKER_CLASS);
+    if (!marker) {
+      existingMarkerEl?.remove();
+      containerEl.classList.remove(FILE_TYPE_MARKER_ROW_CLASS);
+      return;
+    }
+
+    const markerEl = existingMarkerEl ?? document.createElement("span");
+    if (!existingMarkerEl) {
+      markerEl.className = `nav-file-tag ${FILE_TYPE_MARKER_CLASS}`;
+      markerEl.setAttribute("aria-hidden", "true");
+    }
+
+    if (markerEl.textContent !== marker.label) {
+      markerEl.textContent = marker.label;
+    }
+
+    containerEl.classList.add(FILE_TYPE_MARKER_ROW_CLASS);
+
+    if (containerEl.lastElementChild !== markerEl) {
+      containerEl.append(markerEl);
+    }
+  }
+
+  private removeInjectedFileTypeMarkers(): void {
+    for (const rowEl of Array.from(
+      this.view.containerEl.querySelectorAll<HTMLElement>(`.${FILE_TYPE_MARKER_ROW_CLASS}`),
+    )) {
+      rowEl.classList.remove(FILE_TYPE_MARKER_ROW_CLASS);
+    }
+
+    for (const markerEl of Array.from(this.view.containerEl.querySelectorAll<HTMLElement>(`.${FILE_TYPE_MARKER_CLASS}`))) {
+      markerEl.remove();
+    }
+  }
+
+  private clearExplorerDecorations(): void {
+    this.removeInjectedFileTypeMarkers();
+    this.clearHierarchyDecorations();
+  }
+
+  private clearHierarchyDecorations(): void {
+    for (const rowEl of Array.from(
+      this.view.containerEl.querySelectorAll<HTMLElement>(`[${FOLDER_DEPTH_ATTR}]`),
+    )) {
+      rowEl.removeAttribute(FOLDER_DEPTH_ATTR);
+      rowEl.style.removeProperty("--nav-item-weight");
+      rowEl.style.removeProperty("--nav-item-weight-hover");
+      rowEl.style.removeProperty("--nav-item-weight-active");
+      rowEl.style.removeProperty("--nav-item-size");
+      rowEl.style.removeProperty("--icon-size");
+      rowEl.style.removeProperty("--nav-item-color");
+      rowEl.style.removeProperty("--nav-item-color-hover");
+      rowEl.style.removeProperty("--nav-item-color-active");
+      rowEl.style.removeProperty("--nav-item-color-selected");
+      rowEl.style.removeProperty("--nav-collapse-icon-color");
+      rowEl.style.removeProperty("--nav-collapse-icon-color-collapsed");
+      rowEl.style.removeProperty("--icon-color");
+      rowEl.style.removeProperty("font-weight");
+      rowEl.style.removeProperty("color");
+      rowEl.style.removeProperty("font-size");
+    }
+
+    for (const folderEl of Array.from(
+      this.view.containerEl.querySelectorAll<HTMLElement>(`[${FOLDER_WRAPPER_DEPTH_ATTR}]`),
+    )) {
+      folderEl.removeAttribute(FOLDER_WRAPPER_DEPTH_ATTR);
+      folderEl.style.removeProperty("margin-top");
+      folderEl.style.removeProperty("margin-bottom");
+    }
+  }
+
+  private renderStatus(): void {
+    const headerEl = this.view.containerEl.querySelector<HTMLElement>(".nav-header");
+    if (!headerEl) {
+      this.resetTabDragState();
+      this.statusEl?.remove();
+      this.statusEl = null;
+      return;
+    }
+
+    this.ensureTabs();
+
+    if (!this.statusEl) {
+      const existingStatusEl = this.view.containerEl.querySelector<HTMLDivElement>(`.${STATUS_CLASS}`);
+      this.statusEl =
+        existingStatusEl ??
+        createDiv({
+          cls: STATUS_CLASS,
+        });
+    }
+
+    this.statusEl.dataset.layout = this.plugin.getTabLayout();
+    const fragment = document.createDocumentFragment();
+    for (const tab of this.tabs) {
+      fragment.appendChild(this.createTabElement(tab));
+    }
+    fragment.appendChild(this.createAddTabElement());
+    this.statusEl.replaceChildren(fragment);
+    if (this.statusEl.parentElement !== headerEl.parentElement) {
+      headerEl.insertAdjacentElement("afterend", this.statusEl);
+    } else if (headerEl.nextElementSibling !== this.statusEl) {
+      headerEl.insertAdjacentElement("afterend", this.statusEl);
+    }
+    this.scrollActiveTabIntoView();
+    this.syncDragIndicators();
+  }
+
+  private syncStatusActiveState(): void {
+    if (!this.statusEl) {
+      return;
+    }
+
+    for (const tabEl of Array.from(
+      this.statusEl.querySelectorAll<HTMLElement>(".file-explorer-pin-tab[data-tab-id]"),
+    )) {
+      tabEl.classList.toggle("is-active", tabEl.dataset.tabId === this.activeTabId);
+    }
+
+    this.scrollActiveTabIntoView();
+    this.syncDragIndicators();
+  }
+
+  private refreshView(): void {
+    if (typeof this.view.requestSort === "function") {
+      this.view.requestSort();
+      return;
+    }
+
+    if (typeof this.view.sort === "function") {
+      this.view.sort();
+    }
+  }
+
+  private captureSnapshot(): ExplorerSnapshot {
+    return {
+      expandedPaths: this.getExpandedPaths(),
+      selectedPath: this.getSelectedPath(),
+      scrollTop: this.getScrollContainer()?.scrollTop ?? 0,
+    };
+  }
+
+  private async restoreSnapshotState(snapshot: ExplorerSnapshot): Promise<void> {
+    if (this.restoring) {
+      return;
+    }
+
+    this.restoring = true;
+    try {
+      await waitForNextFrame();
+      const paths = snapshot.expandedPaths
+        .filter((path) => path !== this.rootPath)
+        .filter((path) => this.view.app.vault.getAbstractFileByPath(path) instanceof TFolder)
+        .sort(comparePathDepthAscending);
+
+      for (const path of paths) {
+        const item = this.view.fileItems?.[path];
+        if (!item || typeof item.setCollapsed !== "function") {
+          continue;
+        }
+
+        await Promise.resolve(item.setCollapsed(false, false));
+      }
+
+      await waitForNextFrame();
+      this.restoreSelection(snapshot.selectedPath);
+
+      const scrollContainer = this.getScrollContainer();
+      if (scrollContainer) {
+        scrollContainer.scrollTop = snapshot.scrollTop;
+      }
+    } finally {
+      this.restoring = false;
+    }
+  }
+
+  private restoreSelection(path: string | null): void {
+    if (!path) {
+      return;
+    }
+
+    const item = this.view.fileItems?.[path];
+    if (!item) {
+      return;
+    }
+
+    const tree = this.view.tree;
+    if (typeof tree?.setFocusedItem === "function") {
+      tree.setFocusedItem(item, false);
+    }
+
+    item.selfEl.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }
+
+  private getExpandedPaths(): string[] {
+    const paths: string[] = [];
+    const folderTitles = this.view.containerEl.querySelectorAll<HTMLElement>(
+      ".nav-folder-title[data-path]",
+    );
+
+    folderTitles.forEach((titleEl) => {
+      const path = titleEl.dataset.path;
+      if (!path) {
+        return;
+      }
+
+      const folderEl = titleEl.closest(".nav-folder");
+      if (!folderEl || folderEl.classList.contains("is-collapsed")) {
+        return;
+      }
+
+      paths.push(path);
+    });
+
+    return paths;
+  }
+
+  private getSelectedPath(): string | null {
+    const selectedEl =
+      this.view.containerEl.querySelector<HTMLElement>(
+        ".tree-item-self.has-focus[data-path]",
+      ) ??
+      this.view.containerEl.querySelector<HTMLElement>(
+        ".nav-file-title.is-active[data-path], .nav-folder-title.is-active[data-path]",
+      ) ??
+      this.view.containerEl.querySelector<HTMLElement>(
+        ".nav-file-title.is-selected[data-path], .nav-folder-title.is-selected[data-path]",
+      );
+
+    return selectedEl?.dataset.path ?? this.view.tree?.focusedItem?.file.path ?? null;
+  }
+
+  private getScrollContainer(): HTMLElement | null {
+    return this.view.navFileContainerEl ?? this.view.containerEl.querySelector(".nav-files-container");
+  }
+
+  private getHierarchyRootPath(): string {
+    return this.getActiveTab()?.pinnedRootPath ?? this.rootPath;
+  }
+
+  private getPinnedRoot(): TFolder | null {
+    const activeTab = this.getActiveTab();
+    if (!activeTab?.pinnedRootPath) {
+      return null;
+    }
+
+    return this.getFolder(activeTab.pinnedRootPath);
+  }
+
+  private getPinnedParentFolder(): TFolder | null {
+    const activeTab = this.getActiveTab();
+    if (!activeTab?.pinnedRootPath) {
+      return null;
+    }
+
+    const parentPath = getPinnedParentFolderPath(activeTab.pinnedRootPath, this.rootPath);
+    return parentPath ? this.getFolder(parentPath) : null;
+  }
+
+  private getFolder(path: string): TFolder | null {
+    if (path === this.rootPath) {
+      return this.view.app.vault.getRoot();
+    }
+
+    const file = this.view.app.vault.getAbstractFileByPath(path);
+    return file instanceof TFolder ? file : null;
+  }
+
+  private async persistState(): Promise<void> {
+    if (this.tabs.length === 0 || this.activeTabId === null) {
+      await this.plugin.setPersistedLeafState(getLeafId(this.leaf), null);
+      return;
+    }
+
+    await this.plugin.setPersistedLeafState(getLeafId(this.leaf), {
+      activeTabId: this.activeTabId,
+      tabs: this.tabs.map((tab) => cloneExplorerTabState(tab)),
+    });
+  }
+
+  private createTabElement(tab: ExplorerTabState): HTMLDivElement {
+    const tabEl = createDiv({
+      cls: "file-explorer-pin-tab",
+    });
+    tabEl.dataset.tabId = tab.id;
+    tabEl.classList.toggle("is-active", tab.id === this.activeTabId);
+    tabEl.classList.toggle("is-dragging", tab.id === this.draggingTabId);
+    tabEl.setAttribute("role", "button");
+    tabEl.tabIndex = 0;
+    tabEl.setAttribute("title", this.getTabTitle(tab));
+    tabEl.addEventListener("click", (event) => {
+      if (this.suppressNextTabClick) {
+        this.suppressNextTabClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      void this.activateTab(tab.id);
+    });
+    tabEl.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+
+      event.preventDefault();
+      void this.activateTab(tab.id);
+    });
+    tabEl.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest(".file-explorer-pin-tab-action")) {
+        return;
+      }
+
+      this.beginTabPointerDrag(tab.id, event);
+    });
+
+    const bodyEl = tabEl.createDiv({
+      cls: "file-explorer-pin-tab-body",
+    });
+    bodyEl.createSpan({
+      cls: "file-explorer-pin-tab-label",
+      text: this.getTabLabel(tab),
+    });
+
+    if (this.plugin.shouldShowGoUpButton()) {
+      const parentFolder = this.getParentFolderForTab(tab);
+      const upButton = tabEl.createEl("button", {
+        cls: "clickable-icon file-explorer-pin-tab-action",
+        attr: {
+          type: "button",
+          "aria-label": parentFolder ? "Go up one level" : "Already at top level",
+          title: parentFolder ? `Go up one level: ${parentFolder.name}` : "Already at top level",
+        },
+      });
+      setIcon(upButton, "corner-up-left");
+      upButton.disabled = tab.pinnedRootPath === null;
+      upButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void this.activateTab(tab.id, async () => this.goUpOneLevel());
+      });
+    }
+
+    const rootTab = tab.pinnedRootPath === null;
+    const pinOrCloseButton = tabEl.createEl("button", {
+      cls: "clickable-icon file-explorer-pin-tab-action",
+      attr: {
+        type: "button",
+        "aria-label": rootTab ? "Close tab" : "Unpin current folder",
+        title: rootTab ? "Close tab" : "Unpin current folder",
+      },
+    });
+    setIcon(pinOrCloseButton, rootTab ? "x" : "pin");
+    pinOrCloseButton.classList.toggle("is-active", !rootTab);
+    pinOrCloseButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (rootTab) {
+        void this.closeTab(tab.id);
+      } else {
+        void this.activateTab(tab.id, async () => this.unpin());
+      }
+    });
+
+    return tabEl;
+  }
+
+  private createAddTabElement(): HTMLButtonElement {
+    const buttonEl = createEl("button", {
+      cls: "file-explorer-pin-add-tab clickable-icon",
+      attr: {
+        type: "button",
+        "aria-label": "Add root tab",
+        title: "Add root tab",
+      },
+    });
+    setIcon(buttonEl, "plus");
+    buttonEl.addEventListener("click", () => {
+      void this.addRootTab();
+    });
+    return buttonEl;
+  }
+
+  private async addRootTab(): Promise<void> {
+    this.saveActiveTabViewSnapshot();
+    const nextTab = createRootTabState();
+    this.tabs.push(nextTab);
+    this.activeTabId = nextTab.id;
+    await this.persistState();
+    this.renderStatus();
+    this.refreshView();
+    await this.restoreCurrentTabView();
+  }
+
+  private async activateTab(
+    tabId: string,
+    whenActivated?: () => Promise<void> | void,
+  ): Promise<void> {
+    if (this.activeTabId !== tabId) {
+      this.saveActiveTabViewSnapshot();
+      this.activeTabId = tabId;
+      await this.persistState();
+      this.syncStatusActiveState();
+      this.refreshView();
+      await this.restoreCurrentTabView();
+    }
+
+    if (whenActivated) {
+      await whenActivated();
+    }
+  }
+
+  private async closeTab(tabId: string): Promise<void> {
+    const tabIndex = this.tabs.findIndex((tab) => tab.id === tabId);
+    if (tabIndex < 0) {
+      return;
+    }
+
+    const isActive = this.activeTabId === tabId;
+    if (isActive) {
+      this.saveActiveTabViewSnapshot();
+    }
+
+    if (this.tabs.length === 1) {
+      await this.plugin.setPersistedLeafState(getLeafId(this.leaf), null);
+      this.leaf.detach();
+      return;
+    }
+
+    this.tabs.splice(tabIndex, 1);
+    if (isActive) {
+      const fallbackTab = this.tabs[tabIndex] ?? this.tabs[tabIndex - 1] ?? this.tabs[0];
+      this.activeTabId = fallbackTab?.id ?? null;
+    }
+
+    await this.persistState();
+    this.renderStatus();
+    this.refreshView();
+    if (isActive) {
+      await this.restoreCurrentTabView();
+    }
+  }
+
+  private async restoreCurrentTabView(): Promise<void> {
+    const activeTab = this.ensureActiveTab();
+    const snapshot = activeTab.viewSnapshot ?? createEmptySnapshot();
+    await this.restoreSnapshotState(snapshot);
+  }
+
+  private scrollActiveTabIntoView(): void {
+    window.requestAnimationFrame(() => {
+      if (!this.statusEl || this.activeTabId === null) {
+        return;
+      }
+
+      const activeTabEl = this.statusEl.querySelector<HTMLElement>(
+        `.file-explorer-pin-tab[data-tab-id="${CSS.escape(this.activeTabId)}"]`,
+      );
+      if (!activeTabEl) {
+        return;
+      }
+
+      activeTabEl.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "nearest",
+      });
+    });
+  }
+
+  private beginTabPointerDrag(tabId: string, event: PointerEvent): void {
+    this.resetTabDragState();
+    this.dragPointerId = event.pointerId;
+    this.dragCandidateTabId = tabId;
+    this.dragStartX = event.clientX;
+    this.dragStartY = event.clientY;
+    this.dragCurrentX = event.clientX;
+    window.addEventListener("pointermove", this.handleTabPointerMove, true);
+    window.addEventListener("pointerup", this.handleTabPointerUp, true);
+    window.addEventListener("pointercancel", this.handleTabPointerCancel, true);
+  }
+
+  private computeDropIndex(pointerX: number, pointerY: number, draggedTabId: string): number {
+    if (!this.statusEl) {
+      return 0;
+    }
+
+    const tabLayout = this.plugin.getTabLayout();
+    const tabEls = Array.from(
+      this.statusEl.querySelectorAll<HTMLElement>(".file-explorer-pin-tab[data-tab-id]"),
+    ).filter((tabEl) => tabEl.dataset.tabId !== draggedTabId);
+
+    for (let index = 0; index < tabEls.length; index += 1) {
+      const rect = tabEls[index].getBoundingClientRect();
+      const midpoint =
+        (tabLayout === "vertical" || tabLayout === "grid")
+          ? rect.top + rect.height / 2
+          : rect.left + rect.width / 2;
+      const pointerPosition = (tabLayout === "vertical" || tabLayout === "grid") ? pointerY : pointerX;
+      if (pointerPosition < midpoint) {
+        return index;
+      }
+    }
+
+    return tabEls.length;
+  }
+
+  private syncDragIndicators(): void {
+    if (!this.statusEl) {
+      return;
+    }
+
+    for (const tabEl of Array.from(this.statusEl.querySelectorAll<HTMLElement>(".file-explorer-pin-tab"))) {
+      tabEl.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+    }
+
+    if (this.draggingTabId === null) {
+      return;
+    }
+
+    const draggingEl = this.statusEl.querySelector<HTMLElement>(
+      `.file-explorer-pin-tab[data-tab-id="${CSS.escape(this.draggingTabId)}"]`,
+    );
+    draggingEl?.classList.add("is-dragging");
+
+    if (this.dragDropIndex === null) {
+      return;
+    }
+
+    const remainingTabs = this.tabs.filter((tab) => tab.id !== this.draggingTabId);
+    if (remainingTabs.length === 0) {
+      return;
+    }
+
+    if (this.dragDropIndex >= remainingTabs.length) {
+      const lastTabId = remainingTabs[remainingTabs.length - 1]?.id;
+      if (!lastTabId) {
+        return;
+      }
+
+      const lastEl = this.statusEl.querySelector<HTMLElement>(
+        `.file-explorer-pin-tab[data-tab-id="${CSS.escape(lastTabId)}"]`,
+      );
+      lastEl?.classList.add("is-drop-after");
+      return;
+    }
+
+    const beforeTabId = remainingTabs[this.dragDropIndex]?.id;
+    if (!beforeTabId) {
+      return;
+    }
+
+    const beforeEl = this.statusEl.querySelector<HTMLElement>(
+      `.file-explorer-pin-tab[data-tab-id="${CSS.escape(beforeTabId)}"]`,
+    );
+    beforeEl?.classList.add("is-drop-before");
+  }
+
+  private updateEdgeScroll(pointerX: number, pointerY: number, draggedTabId: string): void {
+    if (!this.statusEl) {
+      this.stopEdgeScroll();
+      return;
+    }
+
+    const tabLayout = this.plugin.getTabLayout();
+    const rect = this.statusEl.getBoundingClientRect();
+    if (tabLayout === "vertical" || tabLayout === "grid") {
+      if (pointerY <= rect.top + TAB_EDGE_SCROLL_TRIGGER_PX) {
+        this.startEdgeScroll(-1, draggedTabId);
+        return;
+      }
+
+      if (pointerY >= rect.bottom - TAB_EDGE_SCROLL_TRIGGER_PX) {
+        this.startEdgeScroll(1, draggedTabId);
+        return;
+      }
+
+      this.stopEdgeScroll();
+      return;
+    }
+
+    if (pointerX <= rect.left + TAB_EDGE_SCROLL_TRIGGER_PX) {
+      this.startEdgeScroll(-1, draggedTabId);
+      return;
+    }
+
+    if (pointerX >= rect.right - TAB_EDGE_SCROLL_TRIGGER_PX) {
+      this.startEdgeScroll(1, draggedTabId);
+      return;
+    }
+
+    this.stopEdgeScroll();
+  }
+
+  private startEdgeScroll(direction: -1 | 1, draggedTabId: string): void {
+    if (
+      this.edgeScrollTimer !== null &&
+      this.edgeScrollDirection === direction &&
+      this.draggingTabId === draggedTabId
+    ) {
+      return;
+    }
+
+    this.stopEdgeScroll();
+    this.edgeScrollDirection = direction;
+    this.edgeScrollTimer = window.setInterval(() => {
+      if (!this.statusEl || this.draggingTabId !== draggedTabId) {
+        this.stopEdgeScroll();
+        return;
+      }
+
+      if (this.plugin.getTabLayout() === "vertical" || this.plugin.getTabLayout() === "grid") {
+        this.statusEl.scrollTop += direction * TAB_EDGE_SCROLL_STEP_PX;
+      } else {
+        this.statusEl.scrollLeft += direction * TAB_EDGE_SCROLL_STEP_PX;
+      }
+      this.dragDropIndex = this.computeDropIndex(this.dragCurrentX, this.dragCurrentY, draggedTabId);
+      this.syncDragIndicators();
+    }, TAB_EDGE_SCROLL_INTERVAL_MS);
+  }
+
+  private stopEdgeScroll(): void {
+    if (this.edgeScrollTimer !== null) {
+      window.clearInterval(this.edgeScrollTimer);
+      this.edgeScrollTimer = null;
+    }
+
+    this.edgeScrollDirection = 0;
+  }
+
+  private async finishTabPointerDrag(tabId: string): Promise<void> {
+    try {
+      this.stopEdgeScroll();
+      this.suppressNextTabClick = true;
+      const dropIndex =
+        this.dragDropIndex ??
+        this.computeDropIndex(this.dragCurrentX, this.dragCurrentY, tabId);
+      const reorderedTabs = reorderTabs(this.tabs, tabId, dropIndex);
+      if (!areTabOrdersEqual(this.tabs, reorderedTabs)) {
+        this.tabs = reorderedTabs;
+        await this.persistState();
+        this.renderStatus();
+      }
+    } finally {
+      this.resetTabDragState();
+    }
+  }
+
+  private resetTabDragState(): void {
+    this.stopEdgeScroll();
+    window.removeEventListener("pointermove", this.handleTabPointerMove, true);
+    window.removeEventListener("pointerup", this.handleTabPointerUp, true);
+    window.removeEventListener("pointercancel", this.handleTabPointerCancel, true);
+    this.dragPointerId = null;
+    this.dragCandidateTabId = null;
+    this.draggingTabId = null;
+    this.dragDropIndex = null;
+    if (this.statusEl) {
+      this.syncDragIndicators();
+    }
+  }
+
+  private saveActiveTabViewSnapshot(): void {
+    const activeTab = this.getActiveTab();
+    if (!activeTab) {
+      return;
+    }
+
+    activeTab.viewSnapshot = this.captureNormalizedSnapshotForTab(activeTab);
+  }
+
+  private scheduleActiveTabSnapshotSave(): void {
+    if (this.restoring) {
+      return;
+    }
+
+    if (this.snapshotSaveTimer !== null) {
+      window.clearTimeout(this.snapshotSaveTimer);
+    }
+
+    this.snapshotSaveTimer = window.setTimeout(() => {
+      this.snapshotSaveTimer = null;
+      this.saveActiveTabViewSnapshot();
+      void this.persistState();
+    }, 120);
+  }
+
+  private ensureTabs(): void {
+    if (this.tabs.length > 0) {
+      if (this.activeTabId === null || !this.tabs.some((tab) => tab.id === this.activeTabId)) {
+        this.activeTabId = this.tabs[0].id;
+      }
+      return;
+    }
+
+    const rootTab = createRootTabState();
+    this.tabs = [rootTab];
+    this.activeTabId = rootTab.id;
+  }
+
+  private ensureActiveTab(): ExplorerTabState {
+    this.ensureTabs();
+    return this.tabs.find((tab) => tab.id === this.activeTabId) ?? this.tabs[0];
+  }
+
+  private getActiveTab(): ExplorerTabState | null {
+    return this.tabs.find((tab) => tab.id === this.activeTabId) ?? null;
+  }
+
+  private getTabLabel(tab: ExplorerTabState): string {
+    if (!tab.pinnedRootPath) {
+      return "Top level";
+    }
+
+    return this.getFolder(tab.pinnedRootPath)?.name ?? tab.pinnedRootPath;
+  }
+
+  private getTabTitle(tab: ExplorerTabState): string {
+    return tab.pinnedRootPath ?? this.rootPath;
+  }
+
+  private getParentFolderForTab(tab: ExplorerTabState): TFolder | null {
+    if (!tab.pinnedRootPath) {
+      return null;
+    }
+
+    const parentPath = getPinnedParentFolderPath(tab.pinnedRootPath, this.rootPath);
+    return parentPath ? this.getFolder(parentPath) : null;
+  }
+
+  private sanitizeTabState(tab: ExplorerTabState): ExplorerTabState | null {
+    if (tab.pinnedRootPath !== null) {
+      const folder = this.getFolder(tab.pinnedRootPath);
+      if (!folder || folder.path === this.rootPath) {
+        return createRootTabState(
+          tab.id,
+          tab.viewSnapshot ? this.createSnapshotForRoot(this.rootPath, tab.viewSnapshot) : createEmptySnapshot(),
+          null,
+        );
+      }
+
+      return {
+        id: tab.id,
+        pinnedRootPath: folder.path,
+        viewSnapshot: tab.viewSnapshot
+          ? this.createSnapshotForRoot(folder.path, tab.viewSnapshot)
+          : createEmptySnapshot(),
+        restoreSnapshot: tab.restoreSnapshot
+          ? this.createSnapshotForRoot(this.rootPath, tab.restoreSnapshot)
+          : null,
+      };
+    }
+
+    return {
+      id: tab.id,
+      pinnedRootPath: null,
+      viewSnapshot: tab.viewSnapshot ? this.createSnapshotForRoot(this.rootPath, tab.viewSnapshot) : null,
+      restoreSnapshot: null,
+    };
+  }
+
+  private captureNormalizedSnapshotForTab(tab: ExplorerTabState): ExplorerSnapshot {
+    const rootPath = tab.pinnedRootPath ?? this.rootPath;
+    return this.createSnapshotForRoot(rootPath, this.captureSnapshot());
+  }
+
+  private createSnapshotForRoot(rootPath: string, snapshot: ExplorerSnapshot): ExplorerSnapshot {
+    const expandedPaths = snapshot.expandedPaths.filter((path, index, paths) => {
+      return (
+        path !== rootPath &&
+        isDescendantPath(path, rootPath) &&
+        this.getFolder(path) !== null &&
+        paths.indexOf(path) === index
+      );
+    });
+
+    const selectedPath =
+      snapshot.selectedPath !== null &&
+      snapshot.selectedPath !== rootPath &&
+      isDescendantPath(snapshot.selectedPath, rootPath) &&
+      this.view.app.vault.getAbstractFileByPath(snapshot.selectedPath)
+        ? snapshot.selectedPath
+        : null;
+
+    return {
+      expandedPaths,
+      selectedPath,
+      scrollTop: Math.max(0, snapshot.scrollTop),
+    };
+  }
+}
+
+class FileExplorerPinSettingTab extends PluginSettingTab {
+  private readonly plugin: FileExplorerPinPlugin;
+
+  constructor(app: App, plugin: FileExplorerPinPlugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+
+    containerEl.createEl("h3", { text: "General" });
+
+    new Setting(containerEl)
+      .setName("Enable Folder Pin tabs")
+      .setDesc("Add pinned folder tabs to the default file explorer.")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.isEnabled());
+        toggle.onChange(async (value) => {
+          await this.plugin.updateSettings({
+            enableDefaultFileExplorerPinning: value,
+          });
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Show \"go up one level\" button")
+      .setDesc("Show the parent-folder button on each Folder Pin tab. Disabled by default.")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.shouldShowGoUpButton());
+        toggle.onChange(async (value) => {
+          await this.plugin.updateSettings({
+            showGoUpButton: value,
+          });
+        });
+      });
+
+    containerEl.createEl("h3", { text: "Tabs" });
+
+    new Setting(containerEl)
+      .setName("Tab layout")
+      .setDesc("Choose how Folder Pin tabs are arranged.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("grid", "Grid (2 columns)");
+        dropdown.addOption("vertical", "Vertical");
+        dropdown.addOption("horizontal", "Horizontal");
+        dropdown.setValue(this.plugin.getTabLayout());
+        dropdown.onChange(async (value) => {
+          if (!isTabLayout(value)) {
+            return;
+          }
+
+          await this.plugin.updateSettings({
+            tabLayout: value,
+          });
+        });
+      });
+
+    containerEl.createEl("h3", { text: "Level 1 folders" });
+
+    new Setting(containerEl)
+      .setName("Weight")
+      .setDesc("Weight for folders directly under the current Folder Pin view root.")
+      .addDropdown((dropdown) => {
+        addFolderHierarchyWeightOptions(dropdown);
+        dropdown.setValue(String(this.plugin.getFolderLevelWeight(1)));
+        dropdown.onChange(async (value) => {
+          const weight = parseFolderHierarchyWeight(value);
+          if (weight === null) {
+            return;
+          }
+
+          await this.plugin.updateSettings({
+            folderLevel1Weight: weight,
+          });
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Font size")
+      .setDesc(`Uses whole px steps from ${MIN_FOLDER_LEVEL_1_FONT_SIZE_PX} to ${MAX_FOLDER_LEVEL_1_FONT_SIZE_PX}.`)
+      .addSlider((slider) => {
+        slider.setLimits(MIN_FOLDER_LEVEL_1_FONT_SIZE_PX, MAX_FOLDER_LEVEL_1_FONT_SIZE_PX, 1);
+        slider.setValue(this.plugin.getFolderLevel1FontSizePx());
+        slider.setDynamicTooltip();
+        slider.onChange(async (value) => {
+          await this.plugin.updateSettings({
+            folderLevel1FontSizePx: normalizeFolderFontSizePx(value, DEFAULT_FOLDER_LEVEL_1_FONT_SIZE_PX),
+          });
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Use black")
+      .setDesc("Apply pure black to folders directly under the current Folder Pin view root.")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.isFolderLevelBlackEnabled(1));
+        toggle.onChange(async (value) => {
+          await this.plugin.updateSettings({
+            folderLevel1UseBlack: value,
+          });
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Expanded spacing")
+      .setDesc("Vertical spacing around expanded level 1 folder blocks. Uses whole px steps.")
+      .addSlider((slider) => {
+        slider.setLimits(0, 32, 1);
+        slider.setValue(this.plugin.getFolderExpandedSpacingPx(1));
+        slider.setDynamicTooltip();
+        slider.onChange(async (value) => {
+          await this.plugin.updateSettings({
+            folderLevel1ExpandedSpacingPx: normalizeFolderSpacingPx(value, 0),
+          });
+        });
+      });
+
+    containerEl.createEl("h3", { text: "File Types" });
+
+    new Setting(containerEl)
+      .setName("File type marker style")
+      .setDesc("Show file extensions on the left as plain text or a light badge.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("text", "Text");
+        dropdown.addOption("badge", "Badge");
+        dropdown.setValue(this.plugin.getFileTypeMarkerStyle());
+        dropdown.onChange(async (value) => {
+          if (!isFileTypeMarkerStyle(value)) {
+            return;
+          }
+
+          await this.plugin.updateSettings({
+            fileTypeMarkerStyle: value,
+          });
+        });
+      });
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isFolderHierarchyWeight(value: unknown): value is FolderHierarchyWeight {
+  return value === 400 || value === 500 || value === 600 || value === 700;
+}
+
+function normalizeFolderHierarchyWeight(
+  value: unknown,
+  fallback: FolderHierarchyWeight,
+): FolderHierarchyWeight {
+  return isFolderHierarchyWeight(value) ? value : fallback;
+}
+
+function parseFolderHierarchyWeight(value: string): FolderHierarchyWeight | null {
+  const parsed = Number.parseInt(value, 10);
+  return isFolderHierarchyWeight(parsed) ? parsed : null;
+}
+
+function normalizeFolderSpacingPx(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.round(value));
+}
+
+function normalizeFolderFontSizePx(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  const normalized = Math.round(value);
+  return Math.max(
+    MIN_FOLDER_LEVEL_1_FONT_SIZE_PX,
+    Math.min(MAX_FOLDER_LEVEL_1_FONT_SIZE_PX, normalized),
+  );
+}
+
+function addFolderHierarchyWeightOptions(
+  dropdown: { addOption(value: string, label: string): unknown },
+): void {
+  dropdown.addOption("400", "400 Normal");
+  dropdown.addOption("500", "500 Medium");
+  dropdown.addOption("600", "600 Semibold");
+  dropdown.addOption("700", "700 Bold");
+}
+
+function isFileTypeMarkerStyle(value: unknown): value is FileTypeMarkerStyle {
+  return value === "text" || value === "badge";
+}
+
+function normalizeFileTypeMarkerStyle(value: unknown): FileTypeMarkerStyle {
+  return isFileTypeMarkerStyle(value) ? value : DEFAULT_FILE_TYPE_MARKER_STYLE;
+}
+
+function isTabLayout(value: unknown): value is TabLayout {
+  return value === "vertical" || value === "horizontal" || value === "grid";
+}
+
+function normalizeTabLayout(value: unknown): TabLayout {
+  return isTabLayout(value) ? value : DEFAULT_TAB_LAYOUT;
+}
+
+function isInternalFileExplorerView(view: unknown): view is InternalFileExplorerView {
+  if (!isRecord(view)) {
+    return false;
+  }
+
+  return view.containerEl instanceof HTMLElement;
+}
+
+function isDescendantPath(path: string, rootPath: string): boolean {
+  if (rootPath.length === 0) {
+    return true;
+  }
+
+  return path === rootPath || path.startsWith(`${rootPath}/`);
+}
+
+function getPathDepth(path: string): number {
+  return path.length === 0 ? 0 : path.split("/").length;
+}
+
+function getRelativeFolderDepth(path: string, rootPath: string): number {
+  if (path === rootPath || !isDescendantPath(path, rootPath)) {
+    return 0;
+  }
+
+  return Math.max(0, getPathDepth(path) - getPathDepth(rootPath));
+}
+
+function rewritePathPrefix(path: string, oldPath: string, newPath: string): string {
+  if (path === oldPath) {
+    return newPath;
+  }
+
+  if (!isDescendantPath(path, oldPath)) {
+    return path;
+  }
+
+  return `${newPath}${path.slice(oldPath.length)}`;
+}
+
+function getPinnedParentFolderPath(path: string, rootPath: string): string | null {
+  const separatorIndex = path.lastIndexOf("/");
+  if (separatorIndex < 0) {
+    return null;
+  }
+
+  const parentPath = path.slice(0, separatorIndex);
+  if (!parentPath || parentPath === rootPath) {
+    return null;
+  }
+
+  return parentPath;
+}
+
+function comparePathDepthAscending(left: string, right: string): number {
+  const leftDepth = left.split("/").length;
+  const rightDepth = right.split("/").length;
+  return leftDepth - rightDepth || left.localeCompare(right);
+}
+
+function cloneExplorerSnapshot(snapshot: ExplorerSnapshot): ExplorerSnapshot {
+  return {
+    expandedPaths: [...snapshot.expandedPaths],
+    selectedPath: snapshot.selectedPath,
+    scrollTop: snapshot.scrollTop,
+  };
+}
+
+function clonePersistedLeafState(state: PersistedLeafState): PersistedLeafState {
+  return {
+    activeTabId: state.activeTabId,
+    tabs: state.tabs.map((tab) => cloneExplorerTabState(tab)),
+  };
+}
+
+function cloneExplorerTabState(tab: ExplorerTabState): ExplorerTabState {
+  return {
+    id: tab.id,
+    pinnedRootPath: tab.pinnedRootPath,
+    viewSnapshot: tab.viewSnapshot ? cloneExplorerSnapshot(tab.viewSnapshot) : null,
+    restoreSnapshot: tab.restoreSnapshot ? cloneExplorerSnapshot(tab.restoreSnapshot) : null,
+  };
+}
+
+function areSnapshotsEqual(left: ExplorerSnapshot, right: ExplorerSnapshot): boolean {
+  if (left.selectedPath !== right.selectedPath || left.scrollTop !== right.scrollTop) {
+    return false;
+  }
+
+  if (left.expandedPaths.length !== right.expandedPaths.length) {
+    return false;
+  }
+
+  return left.expandedPaths.every((path, index) => path === right.expandedPaths[index]);
+}
+
+function reorderTabs(
+  tabs: ExplorerTabState[],
+  draggedTabId: string,
+  dropIndex: number,
+): ExplorerTabState[] {
+  const draggedTab = tabs.find((tab) => tab.id === draggedTabId);
+  if (!draggedTab) {
+    return [...tabs];
+  }
+
+  const remainingTabs = tabs.filter((tab) => tab.id !== draggedTabId);
+  const boundedDropIndex = Math.max(0, Math.min(dropIndex, remainingTabs.length));
+  const reorderedTabs = [...remainingTabs];
+  reorderedTabs.splice(boundedDropIndex, 0, draggedTab);
+  return reorderedTabs;
+}
+
+function getExplorerItemPathFromElement(target: EventTarget | null): string | null {
+  if (!(target instanceof HTMLElement)) {
+    return null;
+  }
+
+  const pathOwner = target.closest<HTMLElement>(
+    ".nav-file-title[data-path], .nav-folder-title[data-path], .tree-item-self[data-path]",
+  );
+  const path = pathOwner?.dataset.path;
+  return typeof path === "string" && path.length > 0 ? path : null;
+}
+
+function getParentPath(path: string): string {
+  const separatorIndex = path.lastIndexOf("/");
+  if (separatorIndex < 0) {
+    return "";
+  }
+
+  return path.slice(0, separatorIndex);
+}
+
+function joinVaultPath(parentPath: string, childName: string): string {
+  return parentPath.length > 0 ? `${parentPath}/${childName}` : childName;
+}
+
+function getAvailableChildPath(
+  vault: App["vault"],
+  parentPath: string,
+  baseName: string,
+  extension = "",
+): string {
+  const normalizedExtension = extension.length > 0 && !extension.startsWith(".")
+    ? `.${extension}`
+    : extension;
+
+  let index = 0;
+  while (true) {
+    const suffix = index === 0 ? "" : ` ${index}`;
+    const candidate = normalizePath(
+      joinVaultPath(parentPath, `${baseName}${suffix}${normalizedExtension}`),
+    );
+    if (!vault.getAbstractFileByPath(candidate)) {
+      return candidate;
+    }
+
+    index += 1;
+  }
+}
+
+function uniquePaths(paths: string[]): string[] {
+  return Array.from(new Set(paths));
+}
+
+function overrideRootDropPath(element: HTMLElement, path: string): void {
+  if (!element.hasAttribute(ROOT_DROP_PATH_ATTR)) {
+    const originalPath = element.getAttribute("data-path");
+    if (originalPath !== null) {
+      element.setAttribute(ROOT_DROP_ORIGINAL_PATH_ATTR, originalPath);
+    }
+  }
+
+  element.setAttribute(ROOT_DROP_PATH_ATTR, path);
+  element.setAttribute("data-path", path);
+}
+
+function restoreRootDropPath(element: HTMLElement): void {
+  const originalPath = element.getAttribute(ROOT_DROP_ORIGINAL_PATH_ATTR);
+  if (originalPath !== null) {
+    element.setAttribute("data-path", originalPath);
+    element.removeAttribute(ROOT_DROP_ORIGINAL_PATH_ATTR);
+  } else if (element.hasAttribute(ROOT_DROP_PATH_ATTR)) {
+    element.removeAttribute("data-path");
+  }
+
+  element.removeAttribute(ROOT_DROP_PATH_ATTR);
+}
+
+function overrideRootDisplayName(element: HTMLElement, name: string): void {
+  if (!element.hasAttribute(ROOT_DROP_ORIGINAL_NAME_ATTR)) {
+    element.setAttribute(ROOT_DROP_ORIGINAL_NAME_ATTR, element.textContent ?? "");
+  }
+
+  if (!element.hasAttribute(ROOT_DROP_ORIGINAL_TITLE_ATTR)) {
+    const originalTitle = element.getAttribute("title");
+    if (originalTitle !== null) {
+      element.setAttribute(ROOT_DROP_ORIGINAL_TITLE_ATTR, originalTitle);
+    }
+  }
+
+  if (!element.hasAttribute(ROOT_DROP_ORIGINAL_ARIA_LABEL_ATTR)) {
+    const originalAriaLabel = element.getAttribute("aria-label");
+    if (originalAriaLabel !== null) {
+      element.setAttribute(ROOT_DROP_ORIGINAL_ARIA_LABEL_ATTR, originalAriaLabel);
+    }
+  }
+
+  element.textContent = name;
+  element.setAttribute("title", name);
+  element.setAttribute("aria-label", name);
+}
+
+function restoreRootDisplayName(element: HTMLElement): void {
+  const originalName = element.getAttribute(ROOT_DROP_ORIGINAL_NAME_ATTR);
+  if (originalName !== null) {
+    element.textContent = originalName;
+    element.removeAttribute(ROOT_DROP_ORIGINAL_NAME_ATTR);
+  }
+
+  const originalTitle = element.getAttribute(ROOT_DROP_ORIGINAL_TITLE_ATTR);
+  if (originalTitle !== null) {
+    element.setAttribute("title", originalTitle);
+    element.removeAttribute(ROOT_DROP_ORIGINAL_TITLE_ATTR);
+  } else {
+    element.removeAttribute("title");
+  }
+
+  const originalAriaLabel = element.getAttribute(ROOT_DROP_ORIGINAL_ARIA_LABEL_ATTR);
+  if (originalAriaLabel !== null) {
+    element.setAttribute("aria-label", originalAriaLabel);
+    element.removeAttribute(ROOT_DROP_ORIGINAL_ARIA_LABEL_ATTR);
+  } else {
+    element.removeAttribute("aria-label");
+  }
+}
+
+function replaceRootNameInFloatingNodes(
+  root: Node,
+  rootName: string,
+  pinnedRootName: string,
+  explorerContainer: HTMLElement,
+): void {
+  const textNodes = collectTextNodes(root);
+  for (const textNode of textNodes) {
+    const parent = textNode.parentElement;
+    if (!parent || explorerContainer.contains(parent)) {
+      continue;
+    }
+
+    const value = textNode.nodeValue;
+    if (!value || !value.includes(rootName)) {
+      continue;
+    }
+
+    const host = parent.closest<HTMLElement>("body *");
+    if (!host || explorerContainer.contains(host) || !isFloatingElement(host)) {
+      continue;
+    }
+
+    textNode.nodeValue = value.replaceAll(rootName, pinnedRootName);
+  }
+}
+
+function collectTextNodes(root: Node): Text[] {
+  if (root.nodeType === Node.TEXT_NODE) {
+    return root instanceof Text ? [root] : [];
+  }
+
+  if (!(root instanceof Element || root instanceof DocumentFragment || root instanceof Document)) {
+    return [];
+  }
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  let current = walker.nextNode();
+  while (current) {
+    if (current instanceof Text) {
+      textNodes.push(current);
+    }
+    current = walker.nextNode();
+  }
+
+  return textNodes;
+}
+
+function isFloatingElement(element: HTMLElement): boolean {
+  const style = window.getComputedStyle(element);
+  return (
+    style.position === "fixed" ||
+    style.position === "absolute" ||
+    element.getAttribute("role") === "tooltip"
+  );
+}
+
+function areTabOrdersEqual(left: ExplorerTabState[], right: ExplorerTabState[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((tab, index) => tab.id === right[index]?.id);
+}
+
+function parsePluginData(raw: unknown): PluginData {
+  if (!isRecord(raw)) {
+    return {
+      settings: { ...DEFAULT_SETTINGS },
+      persistedLeaves: {},
+    };
+  }
+
+  const settingsSource = isRecord(raw.settings) ? raw.settings : raw;
+  const settings: PluginSettings = {
+    ...DEFAULT_SETTINGS,
+    showGoUpButton:
+      typeof settingsSource.showGoUpButton === "boolean"
+        ? settingsSource.showGoUpButton
+        : DEFAULT_SETTINGS.showGoUpButton,
+    tabLayout: normalizeTabLayout(settingsSource.tabLayout),
+    folderLevel1Weight: isFolderHierarchyWeight(settingsSource.folderLevel1Weight)
+      ? settingsSource.folderLevel1Weight
+      : DEFAULT_SETTINGS.folderLevel1Weight,
+    folderLevel1FontSizePx: normalizeFolderFontSizePx(
+      settingsSource.folderLevel1FontSizePx,
+      DEFAULT_SETTINGS.folderLevel1FontSizePx,
+    ),
+    folderLevel1ExpandedSpacingPx: normalizeFolderSpacingPx(
+      settingsSource.folderLevel1ExpandedSpacingPx,
+      DEFAULT_SETTINGS.folderLevel1ExpandedSpacingPx,
+    ),
+    folderLevel1UseBlack:
+      typeof settingsSource.folderLevel1UseBlack === "boolean"
+        ? settingsSource.folderLevel1UseBlack
+        : DEFAULT_SETTINGS.folderLevel1UseBlack,
+    fileTypeMarkerStyle: normalizeFileTypeMarkerStyle(settingsSource.fileTypeMarkerStyle),
+  };
+
+  const persistedLeaves: Record<string, PersistedLeafState | undefined> = {};
+  if (isRecord(raw.persistedLeaves)) {
+    for (const [leafId, value] of Object.entries(raw.persistedLeaves)) {
+      const parsed = parsePersistedLeafState(value);
+      if (parsed) {
+        persistedLeaves[leafId] = parsed;
+      }
+    }
+  }
+
+  return {
+    settings,
+    persistedLeaves,
+  };
+}
+
+function parsePersistedLeafState(value: unknown): PersistedLeafState | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (Array.isArray(value.tabs) && typeof value.activeTabId === "string") {
+    const tabs = value.tabs
+      .map((tab) => parseExplorerTabState(tab))
+      .filter((tab): tab is ExplorerTabState => tab !== null);
+    if (tabs.length === 0) {
+      return null;
+    }
+
+    return {
+      activeTabId: tabs.some((tab) => tab.id === value.activeTabId) ? value.activeTabId : tabs[0].id,
+      tabs,
+    };
+  }
+
+  if (typeof value.pinnedRootPath !== "string") {
+    return null;
+  }
+
+  const migratedTab = createPinnedTabState(
+    value.pinnedRootPath,
+    null,
+    parseExplorerSnapshot(value.restoreSnapshot),
+  );
+  return {
+    activeTabId: migratedTab.id,
+    tabs: [migratedTab],
+  };
+}
+
+function parseExplorerTabState(value: unknown): ExplorerTabState | null {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    return null;
+  }
+
+  const pinnedRootPath =
+    value.pinnedRootPath === null
+      ? null
+      : typeof value.pinnedRootPath === "string"
+        ? value.pinnedRootPath
+        : null;
+
+  return {
+    id: value.id,
+    pinnedRootPath,
+    viewSnapshot: parseExplorerSnapshot(value.viewSnapshot),
+    restoreSnapshot: parseExplorerSnapshot(value.restoreSnapshot),
+  };
+}
+
+function parseExplorerSnapshot(value: unknown): ExplorerSnapshot | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return {
+    expandedPaths: Array.isArray(value.expandedPaths)
+      ? value.expandedPaths.filter((path): path is string => typeof path === "string")
+      : [],
+    selectedPath: typeof value.selectedPath === "string" ? value.selectedPath : null,
+    scrollTop: typeof value.scrollTop === "number" ? value.scrollTop : 0,
+  };
+}
+
+function createEmptySnapshot(): ExplorerSnapshot {
+  return {
+    expandedPaths: [],
+    selectedPath: null,
+    scrollTop: 0,
+  };
+}
+
+function createRootTabState(
+  id: string = generateTabId(),
+  viewSnapshot: ExplorerSnapshot | null = createEmptySnapshot(),
+  restoreSnapshot: ExplorerSnapshot | null = null,
+): ExplorerTabState {
+  return {
+    id,
+    pinnedRootPath: null,
+    viewSnapshot: viewSnapshot ? cloneExplorerSnapshot(viewSnapshot) : null,
+    restoreSnapshot: restoreSnapshot ? cloneExplorerSnapshot(restoreSnapshot) : null,
+  };
+}
+
+function createPinnedTabState(
+  pinnedRootPath: string,
+  viewSnapshot: ExplorerSnapshot | null = null,
+  restoreSnapshot: ExplorerSnapshot | null = null,
+  id: string = generateTabId(),
+): ExplorerTabState {
+  return {
+    id,
+    pinnedRootPath,
+    viewSnapshot: viewSnapshot ? cloneExplorerSnapshot(viewSnapshot) : null,
+    restoreSnapshot: restoreSnapshot ? cloneExplorerSnapshot(restoreSnapshot) : null,
+  };
+}
+
+function rewriteSnapshotPaths(
+  snapshot: ExplorerSnapshot,
+  oldPath: string,
+  newPath: string,
+): ExplorerSnapshot {
+  return {
+    expandedPaths: snapshot.expandedPaths.map((path) => rewritePathPrefix(path, oldPath, newPath)),
+    selectedPath:
+      snapshot.selectedPath === null ? null : rewritePathPrefix(snapshot.selectedPath, oldPath, newPath),
+    scrollTop: snapshot.scrollTop,
+  };
+}
+
+function generateTabId(): string {
+  return `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function waitForNextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function findDirectChildByClass(parent: HTMLElement, className: string): HTMLElement | null {
+  for (const child of Array.from(parent.children)) {
+    if (child instanceof HTMLElement && child.classList.contains(className)) {
+      return child;
+    }
+  }
+
+  return null;
+}
+
+function getLeafId(leaf: WorkspaceLeaf): string {
+  return (leaf as InternalWorkspaceLeaf).id;
+}

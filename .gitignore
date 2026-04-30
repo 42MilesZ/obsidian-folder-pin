@@ -1,0 +1,25 @@
+# Build artifacts
+main.js
+main.js.map
+
+# Dependencies
+node_modules/
+
+# Runtime / user data
+data.json
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+
+# Env
+.env
+.env.local
