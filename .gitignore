@@ -11,6 +11,9 @@ data.json
 # macOS
 .DS_Store
 
+# Local-only high-resolution source GIF (kept out of repo to avoid bloat)
+assets/demo.original.gif
+
 # Editor / IDE
 .idea/
 .vscode/
