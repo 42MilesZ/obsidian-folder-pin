@@ -9,15 +9,12 @@ import {
   TFile,
   TFolder,
   WorkspaceLeaf,
-  normalizePath,
   setIcon,
 } from "obsidian";
 
 const FILE_EXPLORER_VIEW_TYPE = "file-explorer";
 const STATUS_CLASS = "file-explorer-pin-status";
 const MANAGED_EXPLORER_CLASS = "file-explorer-pin-managed";
-const FOLDER_DEPTH_ATTR = "data-fep-depth";
-const FOLDER_WRAPPER_DEPTH_ATTR = "data-fep-folder-depth";
 const ROOT_DROP_PATH_ATTR = "data-fep-root-drop-path";
 const ROOT_DROP_ORIGINAL_PATH_ATTR = "data-fep-original-drop-path";
 const ROOT_DROP_ORIGINAL_NAME_ATTR = "data-fep-original-name";
@@ -117,7 +114,7 @@ export default class FileExplorerPinPlugin extends Plugin {
     this.addSettingTab(new FileExplorerPinSettingTab(this.app, this));
     this.addCommand({
       id: "open-another-file-explorer",
-      name: "Open another Folder Pin explorer",
+      name: "Open another explorer",
       callback: async () => {
         await this.openAnotherFileExplorer();
       },
@@ -1514,7 +1511,7 @@ class FileExplorerPinSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Show \"go up one level\" button")
-      .setDesc("Show the parent-folder button on each Folder Pin tab.")
+      .setDesc("Show the parent-folder button on each pinned tab.")
       .addToggle((toggle) => {
         toggle.setValue(this.plugin.shouldShowGoUpButton());
         toggle.onChange(async (value) => {
@@ -1526,7 +1523,7 @@ class FileExplorerPinSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Tab layout")
-      .setDesc("Choose how Folder Pin tabs are arranged.")
+      .setDesc("Choose how pinned tabs are arranged.")
       .addDropdown((dropdown) => {
         dropdown.addOption("grid", "Grid (2 columns)");
         dropdown.addOption("vertical", "Vertical");
@@ -1571,10 +1568,6 @@ function isDescendantPath(path: string, rootPath: string): boolean {
   }
 
   return path === rootPath || path.startsWith(`${rootPath}/`);
-}
-
-function getPathDepth(path: string): number {
-  return path.length === 0 ? 0 : path.split("/").length;
 }
 
 function rewritePathPrefix(path: string, oldPath: string, newPath: string): string {
