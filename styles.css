@@ -92,41 +92,34 @@
   cursor: grabbing;
 }
 
-.file-explorer-pin-tab.is-drop-before::before,
-.file-explorer-pin-tab.is-drop-after::after {
-  content: "";
-  position: absolute;
-  top: 5px;
-  bottom: 5px;
-  width: 2px;
-  border-radius: 999px;
-  background: var(--interactive-accent);
+.file-explorer-pin-tab.is-drag-floating {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.85;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transition: none !important;
 }
 
-.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab.is-drop-before::before,
-.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab.is-drop-after::after {
-  left: 8px;
-  right: 8px;
-  width: auto;
-  height: 2px;
+.file-explorer-pin-tab.is-drag-placeholder {
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-.file-explorer-pin-tab.is-drop-before::before {
-  left: -3px;
+.file-explorer-pin-status.is-dragging-active {
+  cursor: grabbing;
 }
 
-.file-explorer-pin-tab.is-drop-after::after {
-  right: -3px;
-}
-
-.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab.is-drop-before::before {
-  top: -3px;
-  bottom: auto;
-}
-
-.file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab.is-drop-after::after {
-  top: auto;
-  bottom: -3px;
+.file-explorer-pin-status.is-dragging-active .file-explorer-pin-tab:not(.is-drag-floating):not(.is-drag-placeholder) {
+  transition: transform 150ms ease;
 }
 
 .file-explorer-pin-tab-body {
@@ -226,44 +219,6 @@
   background-color: rgba(0, 0, 0, 0.12) !important;
 }
 
-.workspace-leaf-content[data-type="file-explorer"].file-explorer-pin-managed .nav-file-tag:not(.file-explorer-pin-file-type-marker) {
-  display: none !important;
-}
-
-.workspace-leaf-content[data-type="file-explorer"].file-explorer-pin-managed .file-explorer-pin-file-type-marker.nav-file-tag {
-  display: inline-flex;
-  flex: 0 0 auto;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  align-self: center;
-  margin-left: 6px;
-  pointer-events: none;
-  white-space: nowrap;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  transform: translateY(0);
-}
-
-.workspace-leaf-content[data-type="file-explorer"].file-explorer-pin-managed[data-file-type-marker-style="text"] .file-explorer-pin-file-type-marker {
-  color: var(--text-faint);
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.workspace-leaf-content[data-type="file-explorer"].file-explorer-pin-managed[data-file-type-marker-style="badge"] .file-explorer-pin-file-type-marker {
-  min-width: 1.45rem;
-  min-height: 1.2rem;
-  padding: 1px 4px;
-  border-radius: 4px;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--background-modifier-hover) 70%, transparent 30%);
-}
-
 /* Grid (2-column) layout */
 .file-explorer-pin-status[data-layout="grid"] {
   display: grid;
@@ -297,40 +252,3 @@
   grid-column: 1 / -1;
 }
 
-.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-tab.is-drop-before::before,
-.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-tab.is-drop-after::after {
-  left: 8px;
-  right: 8px;
-  width: auto;
-  height: 2px;
-}
-
-.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-tab.is-drop-before::before {
-  top: -3px;
-  bottom: auto;
-}
-
-.file-explorer-pin-status[data-layout="grid"] .file-explorer-pin-tab.is-drop-after::after {
-  top: auto;
-  bottom: -3px;
-}
-
-/* Folder hierarchy decoration consumes CSS custom properties set on the row by
-   syncFolderHierarchyDecoration in main.ts. Defining the consumption rules here
-   (instead of writing concrete values via JS) keeps theme override compatibility. */
-[data-fep-depth] {
-  font-weight: var(--nav-item-weight);
-}
-
-[data-fep-depth="1"] {
-  font-size: var(--nav-item-size);
-}
-
-[data-fep-depth] {
-  color: var(--nav-item-color);
-}
-
-[data-fep-folder-depth] {
-  margin-top: var(--fep-folder-margin, 0);
-  margin-bottom: var(--fep-folder-margin, 0);
-}

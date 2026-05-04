@@ -16,9 +16,6 @@ import {
 const FILE_EXPLORER_VIEW_TYPE = "file-explorer";
 const STATUS_CLASS = "file-explorer-pin-status";
 const MANAGED_EXPLORER_CLASS = "file-explorer-pin-managed";
-const FILE_TYPE_MARKER_CLASS = "file-explorer-pin-file-type-marker";
-const FILE_TYPE_MARKER_ROW_CLASS = "file-explorer-pin-has-file-type-marker";
-const FILE_TYPE_MARKER_STYLE_ATTR = "data-file-type-marker-style";
 const FOLDER_DEPTH_ATTR = "data-fep-depth";
 const FOLDER_WRAPPER_DEPTH_ATTR = "data-fep-folder-depth";
 const ROOT_DROP_PATH_ATTR = "data-fep-root-drop-path";
@@ -27,45 +24,22 @@ const ROOT_DROP_ORIGINAL_NAME_ATTR = "data-fep-original-name";
 const ROOT_DROP_ORIGINAL_TITLE_ATTR = "data-fep-original-title";
 const ROOT_DROP_ORIGINAL_ARIA_LABEL_ATTR = "data-fep-original-aria-label";
 const DEFAULT_TAB_LAYOUT: TabLayout = "grid";
-const DEFAULT_FOLDER_LEVEL_1_WEIGHT: FolderHierarchyWeight = 700;
-const DEFAULT_FOLDER_LEVEL_1_SPACING_PX = 16;
-const DEFAULT_FOLDER_LEVEL_2_SPACING_PX = 0;
-const DEFAULT_FOLDER_LEVEL_1_FONT_SIZE_PX = 16;
-const MIN_FOLDER_LEVEL_1_FONT_SIZE_PX = 12;
-const MAX_FOLDER_LEVEL_1_FONT_SIZE_PX = 24;
-const DEFAULT_FOLDER_LEVEL_1_ICON_SIZE_PX = 18;
-const DEFAULT_FOLDER_LEVEL_1_COLOR = "#000000";
-const DEFAULT_FOLDER_LEVEL_1_USE_BLACK = false;
-const DEFAULT_FILE_TYPE_MARKER_STYLE: FileTypeMarkerStyle = "text";
 const CONTEXT_INFO_MAX_AGE_MS = 2000;
 const TAB_DRAG_THRESHOLD_PX = 6;
 const TAB_EDGE_SCROLL_TRIGGER_PX = 28;
 const TAB_EDGE_SCROLL_STEP_PX = 14;
 const TAB_EDGE_SCROLL_INTERVAL_MS = 16;
-const EMPTY_CANVAS_CONTENT = '{\n\t"nodes":[],\n\t"edges":[]\n}';
 
-type FileTypeMarkerStyle = "text" | "badge";
 type TabLayout = "vertical" | "horizontal" | "grid";
-type FolderHierarchyWeight = 400 | 500 | 600 | 700;
 
 interface PluginSettings {
-  enableDefaultFileExplorerPinning: boolean;
   showGoUpButton: boolean;
   tabLayout: TabLayout;
-  folderLevel1Weight: FolderHierarchyWeight;
-  folderLevel1FontSizePx: number;
-  folderLevel1ExpandedSpacingPx: number;
-  folderLevel1UseBlack: boolean;
-  fileTypeMarkerStyle: FileTypeMarkerStyle;
 }
 
 interface PluginData {
   settings: PluginSettings;
   persistedLeaves: Record<string, PersistedLeafState | undefined>;
-}
-
-interface FileTypeMarker {
-  label: string;
 }
 
 interface FileExplorerViewState {
@@ -131,161 +105,9 @@ interface PatchedMethods {
 }
 
 const DEFAULT_SETTINGS: PluginSettings = {
-  enableDefaultFileExplorerPinning: true,
   showGoUpButton: false,
   tabLayout: DEFAULT_TAB_LAYOUT,
-  folderLevel1Weight: DEFAULT_FOLDER_LEVEL_1_WEIGHT,
-  folderLevel1FontSizePx: DEFAULT_FOLDER_LEVEL_1_FONT_SIZE_PX,
-  folderLevel1ExpandedSpacingPx: DEFAULT_FOLDER_LEVEL_1_SPACING_PX,
-  folderLevel1UseBlack: DEFAULT_FOLDER_LEVEL_1_USE_BLACK,
-  fileTypeMarkerStyle: DEFAULT_FILE_TYPE_MARKER_STYLE,
 };
-
-const TEXT_FILE_EXTENSIONS = new Set([
-  "log",
-  "markdown",
-  "md",
-  "mdown",
-  "mdtxt",
-  "mdx",
-  "rst",
-  "textbundle",
-]);
-const IMAGE_FILE_EXTENSIONS = new Set([
-  "ai",
-  "avif",
-  "bmp",
-  "eps",
-  "gif",
-  "heic",
-  "heif",
-  "ico",
-  "jpe",
-  "jpeg",
-  "jpg",
-  "png",
-  "psd",
-  "raw",
-  "svg",
-  "tif",
-  "tiff",
-  "webp",
-]);
-const CODE_FILE_EXTENSIONS = new Set([
-  "apk",
-  "bash",
-  "c",
-  "cc",
-  "cjs",
-  "conf",
-  "cpp",
-  "cs",
-  "dart",
-  "diff",
-  "env",
-  "gitignore",
-  "go",
-  "h",
-  "haml",
-  "hpp",
-  "htm",
-  "html",
-  "http",
-  "ipynb",
-  "ini",
-  "ipa",
-  "java",
-  "jinja",
-  "json",
-  "json5",
-  "jsonc",
-  "jsx",
-  "kt",
-  "less",
-  "lock",
-  "mjs",
-  "php",
-  "pl",
-  "properties",
-  "py",
-  "rbw",
-  "rc",
-  "reg",
-  "sass",
-  "scala",
-  "sol",
-  "svelte",
-  "swift",
-  "tex",
-  "tmpl",
-  "tsx",
-  "vue",
-  "wasm",
-  "xhtml",
-  "xsd",
-  "yaml",
-  "yml",
-  "zsh",
-  "toml",
-  "lock",
-  "ps1",
-  "bat",
-  "cmd",
-  "dockerfile",
-  "makefile",
-  "gradle",
-  "r",
-  "lua",
-  "erl",
-  "ex",
-  "exs",
-  "clj",
-  "coffee",
-  "graphql",
-  "prisma",
-  "astro",
-  "elm",
-  "nim",
-  "zig",
-  "tf",
-  "tfvars",
-  "cfg",
-  "csvs",
-  "toml-example",
-  "rb",
-  "rs",
-  "scss",
-  "sh",
-  "sql",
-  "ts",
-  "xml",
-]);
-const ARCHIVE_FILE_EXTENSIONS = new Set([
-  "7z",
-  "bz2",
-  "cab",
-  "gz",
-  "iso",
-  "lz",
-  "lzma",
-  "tar",
-  "tgz",
-  "xz",
-  "zip",
-  "rar",
-]);
-const SPREADSHEET_FILE_EXTENSIONS = new Set(["csv", "ods", "tsv"]);
-const CODE_FILE_BASENAMES = new Set([
-  ".env",
-  ".env.example",
-  ".env.local",
-  ".npmrc",
-  ".prettierrc",
-  "dockerfile",
-  "gemfile",
-  "makefile",
-  "procfile",
-]);
 
 export default class FileExplorerPinPlugin extends Plugin {
   private settings: PluginSettings = { ...DEFAULT_SETTINGS };
@@ -310,7 +132,6 @@ export default class FileExplorerPinPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file, source) => {
         if (
-          !this.settings.enableDefaultFileExplorerPinning ||
           source !== "file-explorer-context-menu" ||
           !(file instanceof TFolder)
         ) {
@@ -403,72 +224,12 @@ export default class FileExplorerPinPlugin extends Plugin {
     };
   }
 
-  isEnabled(): boolean {
-    return this.settings.enableDefaultFileExplorerPinning;
-  }
-
   shouldShowGoUpButton(): boolean {
     return this.settings.showGoUpButton;
   }
 
   getTabLayout(): TabLayout {
     return normalizeTabLayout(this.settings.tabLayout);
-  }
-
-  getFolderLevelWeight(level: 1 | 2): FolderHierarchyWeight {
-    if (level === 2) {
-      return 400;
-    }
-
-    return normalizeFolderHierarchyWeight(
-      this.settings.folderLevel1Weight,
-      DEFAULT_SETTINGS.folderLevel1Weight,
-    );
-  }
-
-  getFolderLevel1FontSizePx(): number {
-    return normalizeFolderFontSizePx(
-      this.settings.folderLevel1FontSizePx,
-      DEFAULT_SETTINGS.folderLevel1FontSizePx,
-    );
-  }
-
-  getFolderExpandedSpacingPx(level: 1 | 2): number {
-    return level === 1
-      ? normalizeFolderSpacingPx(
-          this.settings.folderLevel1ExpandedSpacingPx,
-          DEFAULT_SETTINGS.folderLevel1ExpandedSpacingPx,
-        )
-      : DEFAULT_FOLDER_LEVEL_2_SPACING_PX;
-  }
-
-  isFolderLevelBlackEnabled(level: 1 | 2): boolean {
-    if (level === 2) {
-      return false;
-    }
-
-    return typeof this.settings.folderLevel1UseBlack === "boolean"
-      ? this.settings.folderLevel1UseBlack
-      : false;
-  }
-
-  getFileTypeMarkerStyle(): FileTypeMarkerStyle {
-    return normalizeFileTypeMarkerStyle(this.settings.fileTypeMarkerStyle);
-  }
-
-  getFileTypeMarker(file: TAbstractFile): FileTypeMarker | null {
-    if (file instanceof TFolder) {
-      return null;
-    }
-
-    const extension = file.extension.trim().toUpperCase();
-    if (!extension) {
-      return null;
-    }
-
-    return {
-      label: extension,
-    };
   }
 
   private async openAnotherFileExplorer(): Promise<void> {
@@ -492,14 +253,10 @@ export default class FileExplorerPinPlugin extends Plugin {
     const activeLeaves = new Set(this.app.workspace.getLeavesOfType(FILE_EXPLORER_VIEW_TYPE));
 
     for (const [leaf, controller] of this.controllers.entries()) {
-      if (!activeLeaves.has(leaf) || !this.isEnabled()) {
+      if (!activeLeaves.has(leaf)) {
         controller.detach();
         this.controllers.delete(leaf);
       }
-    }
-
-    if (!this.isEnabled()) {
-      return;
     }
 
     if (this.app.workspace.layoutReady) {
@@ -594,8 +351,6 @@ class FileExplorerPinController {
   private fileDragEndHandler: ((event: DragEvent) => void) | null = null;
   private fileDropHandler: ((event: DragEvent) => void) | null = null;
   private dragOverlayObserver: MutationObserver | null = null;
-  private fileTypeIconObserver: MutationObserver | null = null;
-  private fileTypeIconRenderQueued = false;
   private restoring = false;
   private tabs: ExplorerTabState[] = [];
   private activeTabId: string | null = null;
@@ -608,6 +363,10 @@ class FileExplorerPinController {
   private dragCurrentX = 0;
   private dragCurrentY = 0;
   private dragDropIndex: number | null = null;
+  private dragPlaceholder: HTMLDivElement | null = null;
+  private dragInitialPointerX = 0;
+  private dragInitialPointerY = 0;
+  private dragLastDropIndex: number | null = null;
   private suppressNextTabClick = false;
   private edgeScrollTimer: number | null = null;
   private edgeScrollDirection = 0;
@@ -633,12 +392,12 @@ class FileExplorerPinController {
       }
 
       this.draggingTabId = this.dragCandidateTabId;
-      this.dragDropIndex = this.computeDropIndex(event.clientX, event.clientY, this.draggingTabId);
-      this.syncDragIndicators();
-    } else {
-      this.dragDropIndex = this.computeDropIndex(event.clientX, event.clientY, this.draggingTabId);
-      this.syncDragIndicators();
+      this.beginTabDomDrag(this.draggingTabId);
     }
+
+    this.dragDropIndex = this.computeDropIndex(event.clientX, event.clientY, this.draggingTabId);
+    this.moveTabToDropPosition(this.draggingTabId);
+    this.updateDragTransform(this.draggingTabId);
 
     event.preventDefault();
     this.updateEdgeScroll(event.clientX, event.clientY, this.draggingTabId);
@@ -679,7 +438,6 @@ class FileExplorerPinController {
     this.bindContextTracking();
     this.bindInteractionTracking();
     this.bindExplorerDragDrop();
-    this.bindFileTypeIconRendering();
     this.refreshUi();
     void this.restoreCurrentTabView();
   }
@@ -717,10 +475,6 @@ class FileExplorerPinController {
       this.dragOverlayObserver.disconnect();
       this.dragOverlayObserver = null;
     }
-    if (this.fileTypeIconObserver) {
-      this.fileTypeIconObserver.disconnect();
-      this.fileTypeIconObserver = null;
-    }
     if (this.snapshotSaveTimer !== null) {
       window.clearTimeout(this.snapshotSaveTimer);
       this.snapshotSaveTimer = null;
@@ -730,9 +484,7 @@ class FileExplorerPinController {
 
     this.statusEl?.remove();
     this.statusEl = null;
-    this.clearExplorerDecorations();
     this.restoreRootDragContext();
-    this.view.containerEl.removeAttribute(FILE_TYPE_MARKER_STYLE_ATTR);
     this.view.containerEl.classList.remove(MANAGED_EXPLORER_CLASS);
     this.tabs = [];
     this.activeTabId = null;
@@ -741,10 +493,8 @@ class FileExplorerPinController {
   refreshUi(): void {
     this.ensureTabs();
     this.renderStatus();
-    this.view.containerEl.setAttribute(FILE_TYPE_MARKER_STYLE_ATTR, this.plugin.getFileTypeMarkerStyle());
     this.refreshView();
     this.syncRootDragContext();
-    this.scheduleFileTypeIconRender();
   }
 
   async pin(folderPath: string): Promise<void> {
@@ -985,20 +735,6 @@ class FileExplorerPinController {
     const menu = new Menu();
     this.view.app.workspace.trigger("file-menu", menu, folder, "file-explorer-context-menu");
     menu.showAtMouseEvent(event);
-  }
-
-  private bindFileTypeIconRendering(): void {
-    if (this.fileTypeIconObserver) {
-      return;
-    }
-
-    this.fileTypeIconObserver = new MutationObserver(() => {
-      this.scheduleFileTypeIconRender();
-    });
-    this.fileTypeIconObserver.observe(this.view.containerEl, {
-      childList: true,
-      subtree: true,
-    });
   }
 
   private bindInteractionTracking(): void {
@@ -1310,202 +1046,6 @@ class FileExplorerPinController {
         const message = error instanceof Error ? error.message : String(error);
         new Notice(`Failed to move ${file.name}: ${message}`);
       }
-    }
-  }
-
-  private scheduleFileTypeIconRender(): void {
-    if (this.fileTypeIconRenderQueued) {
-      return;
-    }
-
-    this.fileTypeIconRenderQueued = true;
-    window.requestAnimationFrame(() => {
-      this.fileTypeIconRenderQueued = false;
-      this.renderExplorerDecorations();
-    });
-  }
-
-  private renderExplorerDecorations(): void {
-    this.syncRootDragContext();
-    this.clearHierarchyDecorations();
-
-    const handledContainers = new Set<HTMLElement>();
-    const activeRootPath = this.getHierarchyRootPath();
-
-    for (const item of Object.values(this.view.fileItems ?? {})) {
-      if (
-        !item ||
-        !(item.file instanceof TFile || item.file instanceof TFolder) ||
-        !item.selfEl.isConnected
-      ) {
-        continue;
-      }
-
-      handledContainers.add(item.selfEl);
-      this.syncFileTypeMarker(item.selfEl, this.plugin.getFileTypeMarker(item.file));
-      this.syncFolderHierarchyDecoration(item, activeRootPath);
-    }
-
-    for (const titleEl of Array.from(
-      this.view.containerEl.querySelectorAll<HTMLElement>(".nav-folder-title[data-path]"),
-    )) {
-      if (handledContainers.has(titleEl)) {
-        continue;
-      }
-
-      const path = titleEl.dataset.path;
-      const folder = path ? this.getFolder(path) : null;
-      if (!folder) {
-        continue;
-      }
-
-      handledContainers.add(titleEl);
-      this.syncFolderHierarchyDecoration(
-        {
-          file: folder,
-          selfEl: titleEl,
-        },
-        activeRootPath,
-      );
-    }
-
-    for (const markerEl of Array.from(this.view.containerEl.querySelectorAll<HTMLElement>(`.${FILE_TYPE_MARKER_CLASS}`))) {
-      const owner = markerEl.parentElement;
-      if (!owner) {
-        markerEl.remove();
-        continue;
-      }
-
-      if (handledContainers.has(owner)) {
-        continue;
-      }
-
-      markerEl.remove();
-    }
-  }
-
-  private syncFolderHierarchyDecoration(
-    item: InternalExplorerItem,
-    activeRootPath: string,
-  ): void {
-    const rowEl = item.selfEl;
-    const rowShellEl = rowEl.closest<HTMLElement>(".tree-item-self") ?? rowEl;
-    if (!(item.file instanceof TFolder)) {
-      return;
-    }
-
-    const depth = getRelativeFolderDepth(item.file.path, activeRootPath);
-    if (depth !== 1 && depth !== 2) {
-      return;
-    }
-
-    rowEl.setAttribute(FOLDER_DEPTH_ATTR, String(depth));
-    rowShellEl.setAttribute(FOLDER_DEPTH_ATTR, String(depth));
-    const fontWeight = String(this.plugin.getFolderLevelWeight(depth));
-    const rowElements = [rowEl, rowShellEl];
-    for (const element of rowElements) {
-      element.style.setProperty("--nav-item-weight", fontWeight);
-      element.style.setProperty("--nav-item-weight-hover", fontWeight);
-      element.style.setProperty("--nav-item-weight-active", fontWeight);
-    }
-
-    if (depth === 1) {
-      const fontSize = `${this.plugin.getFolderLevel1FontSizePx()}px`;
-      const iconSize = `${DEFAULT_FOLDER_LEVEL_1_ICON_SIZE_PX}px`;
-      for (const element of rowElements) {
-        element.style.setProperty("--nav-item-size", fontSize);
-        element.style.setProperty("--icon-size", iconSize);
-      }
-    }
-
-    if (this.plugin.isFolderLevelBlackEnabled(depth)) {
-      for (const element of rowElements) {
-        element.style.setProperty("--nav-item-color", DEFAULT_FOLDER_LEVEL_1_COLOR);
-        element.style.setProperty("--nav-item-color-hover", DEFAULT_FOLDER_LEVEL_1_COLOR);
-        element.style.setProperty("--nav-item-color-active", DEFAULT_FOLDER_LEVEL_1_COLOR);
-        element.style.setProperty("--nav-item-color-selected", DEFAULT_FOLDER_LEVEL_1_COLOR);
-        element.style.setProperty("--nav-collapse-icon-color", DEFAULT_FOLDER_LEVEL_1_COLOR);
-        element.style.setProperty("--nav-collapse-icon-color-collapsed", DEFAULT_FOLDER_LEVEL_1_COLOR);
-        element.style.setProperty("--icon-color", DEFAULT_FOLDER_LEVEL_1_COLOR);
-      }
-    }
-
-    const folderWrapper = rowEl.closest<HTMLElement>(".nav-folder");
-    if (!folderWrapper) {
-      return;
-    }
-
-    folderWrapper.setAttribute(FOLDER_WRAPPER_DEPTH_ATTR, String(depth));
-    const spacingPx = this.plugin.getFolderExpandedSpacingPx(depth);
-    folderWrapper.style.setProperty("--fep-folder-margin", `${spacingPx}px`);
-  }
-
-  private syncFileTypeMarker(containerEl: HTMLElement, marker: FileTypeMarker | null): void {
-    const existingMarkerEl = findDirectChildByClass(containerEl, FILE_TYPE_MARKER_CLASS);
-    if (!marker) {
-      existingMarkerEl?.remove();
-      containerEl.classList.remove(FILE_TYPE_MARKER_ROW_CLASS);
-      return;
-    }
-
-    const markerEl = existingMarkerEl ?? document.createElement("span");
-    if (!existingMarkerEl) {
-      markerEl.className = `nav-file-tag ${FILE_TYPE_MARKER_CLASS}`;
-      markerEl.setAttribute("aria-hidden", "true");
-    }
-
-    if (markerEl.textContent !== marker.label) {
-      markerEl.textContent = marker.label;
-    }
-
-    containerEl.classList.add(FILE_TYPE_MARKER_ROW_CLASS);
-
-    if (containerEl.lastElementChild !== markerEl) {
-      containerEl.append(markerEl);
-    }
-  }
-
-  private removeInjectedFileTypeMarkers(): void {
-    for (const rowEl of Array.from(
-      this.view.containerEl.querySelectorAll<HTMLElement>(`.${FILE_TYPE_MARKER_ROW_CLASS}`),
-    )) {
-      rowEl.classList.remove(FILE_TYPE_MARKER_ROW_CLASS);
-    }
-
-    for (const markerEl of Array.from(this.view.containerEl.querySelectorAll<HTMLElement>(`.${FILE_TYPE_MARKER_CLASS}`))) {
-      markerEl.remove();
-    }
-  }
-
-  private clearExplorerDecorations(): void {
-    this.removeInjectedFileTypeMarkers();
-    this.clearHierarchyDecorations();
-  }
-
-  private clearHierarchyDecorations(): void {
-    for (const rowEl of Array.from(
-      this.view.containerEl.querySelectorAll<HTMLElement>(`[${FOLDER_DEPTH_ATTR}]`),
-    )) {
-      rowEl.removeAttribute(FOLDER_DEPTH_ATTR);
-      rowEl.style.removeProperty("--nav-item-weight");
-      rowEl.style.removeProperty("--nav-item-weight-hover");
-      rowEl.style.removeProperty("--nav-item-weight-active");
-      rowEl.style.removeProperty("--nav-item-size");
-      rowEl.style.removeProperty("--icon-size");
-      rowEl.style.removeProperty("--nav-item-color");
-      rowEl.style.removeProperty("--nav-item-color-hover");
-      rowEl.style.removeProperty("--nav-item-color-active");
-      rowEl.style.removeProperty("--nav-item-color-selected");
-      rowEl.style.removeProperty("--nav-collapse-icon-color");
-      rowEl.style.removeProperty("--nav-collapse-icon-color-collapsed");
-      rowEl.style.removeProperty("--icon-color");
-    }
-
-    for (const folderEl of Array.from(
-      this.view.containerEl.querySelectorAll<HTMLElement>(`[${FOLDER_WRAPPER_DEPTH_ATTR}]`),
-    )) {
-      folderEl.removeAttribute(FOLDER_WRAPPER_DEPTH_ATTR);
-      folderEl.style.removeProperty("--fep-folder-margin");
     }
   }
 
@@ -1925,6 +1465,79 @@ class FileExplorerPinController {
     window.addEventListener("pointercancel", this.handleTabPointerCancel, true);
   }
 
+  private beginTabDomDrag(tabId: string): void {
+    if (!this.statusEl) {
+      return;
+    }
+
+    const tabEl = this.statusEl.querySelector<HTMLElement>(
+      `.file-explorer-pin-tab[data-tab-id="${CSS.escape(tabId)}"]`,
+    );
+    if (!tabEl) {
+      return;
+    }
+
+    this.dragPlaceholder = createDiv({ cls: "file-explorer-pin-tab is-drag-placeholder" });
+    tabEl.parentNode?.insertBefore(this.dragPlaceholder, tabEl);
+
+    const rect = tabEl.getBoundingClientRect();
+    tabEl.classList.add("is-dragging", "is-drag-floating");
+    tabEl.style.transform = `translate(${rect.left}px, ${rect.top}px)`;
+    tabEl.style.width = `${rect.width}px`;
+
+    this.dragInitialPointerX = this.dragCurrentX - rect.left;
+    this.dragInitialPointerY = this.dragCurrentY - rect.top;
+
+    this.statusEl.classList.add("is-dragging-active");
+  }
+
+  private moveTabToDropPosition(tabId: string): void {
+    if (!this.statusEl || !this.dragPlaceholder || this.dragDropIndex === null) {
+      return;
+    }
+
+    if (this.dragDropIndex === this.dragLastDropIndex) {
+      return;
+    }
+    this.dragLastDropIndex = this.dragDropIndex;
+
+    const remainingTabs = Array.from(
+      this.statusEl.querySelectorAll<HTMLElement>(
+        ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-floating)",
+      ),
+    );
+    const boundedIndex = Math.max(0, Math.min(this.dragDropIndex, remainingTabs.length));
+
+    if (boundedIndex >= remainingTabs.length) {
+      const addTabEl = this.statusEl.querySelector<HTMLElement>(".file-explorer-pin-add-tab");
+      if (addTabEl) {
+        this.statusEl.insertBefore(this.dragPlaceholder, addTabEl);
+      } else {
+        this.statusEl.appendChild(this.dragPlaceholder);
+      }
+    } else {
+      const targetTab = remainingTabs[boundedIndex];
+      if (targetTab && targetTab !== this.dragPlaceholder) {
+        this.statusEl.insertBefore(this.dragPlaceholder, targetTab);
+      }
+    }
+  }
+
+  private updateDragTransform(tabId: string): void {
+    if (!this.statusEl) {
+      return;
+    }
+
+    const tabEl = this.statusEl.querySelector<HTMLElement>(
+      `.file-explorer-pin-tab[data-tab-id="${CSS.escape(tabId)}"]`,
+    );
+    if (!tabEl) {
+      return;
+    }
+
+    tabEl.style.transform = `translate(${this.dragCurrentX - this.dragInitialPointerX}px, ${this.dragCurrentY - this.dragInitialPointerY}px)`;
+  }
+
   private computeDropIndex(pointerX: number, pointerY: number, draggedTabId: string): number {
     if (!this.statusEl) {
       return 0;
@@ -1932,8 +1545,10 @@ class FileExplorerPinController {
 
     const tabLayout = this.plugin.getTabLayout();
     const tabEls = Array.from(
-      this.statusEl.querySelectorAll<HTMLElement>(".file-explorer-pin-tab[data-tab-id]"),
-    ).filter((tabEl) => tabEl.dataset.tabId !== draggedTabId);
+      this.statusEl.querySelectorAll<HTMLElement>(
+        ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-floating)",
+      ),
+    );
 
     for (let index = 0; index < tabEls.length; index += 1) {
       const rect = tabEls[index].getBoundingClientRect();
@@ -1956,7 +1571,7 @@ class FileExplorerPinController {
     }
 
     for (const tabEl of Array.from(this.statusEl.querySelectorAll<HTMLElement>(".file-explorer-pin-tab"))) {
-      tabEl.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+      tabEl.classList.remove("is-dragging", "is-drag-floating", "is-drop-before", "is-drop-after");
     }
 
     if (this.draggingTabId === null) {
@@ -1967,38 +1582,6 @@ class FileExplorerPinController {
       `.file-explorer-pin-tab[data-tab-id="${CSS.escape(this.draggingTabId)}"]`,
     );
     draggingEl?.classList.add("is-dragging");
-
-    if (this.dragDropIndex === null) {
-      return;
-    }
-
-    const remainingTabs = this.tabs.filter((tab) => tab.id !== this.draggingTabId);
-    if (remainingTabs.length === 0) {
-      return;
-    }
-
-    if (this.dragDropIndex >= remainingTabs.length) {
-      const lastTabId = remainingTabs[remainingTabs.length - 1]?.id;
-      if (!lastTabId) {
-        return;
-      }
-
-      const lastEl = this.statusEl.querySelector<HTMLElement>(
-        `.file-explorer-pin-tab[data-tab-id="${CSS.escape(lastTabId)}"]`,
-      );
-      lastEl?.classList.add("is-drop-after");
-      return;
-    }
-
-    const beforeTabId = remainingTabs[this.dragDropIndex]?.id;
-    if (!beforeTabId) {
-      return;
-    }
-
-    const beforeEl = this.statusEl.querySelector<HTMLElement>(
-      `.file-explorer-pin-tab[data-tab-id="${CSS.escape(beforeTabId)}"]`,
-    );
-    beforeEl?.classList.add("is-drop-before");
   }
 
   private updateEdgeScroll(pointerX: number, pointerY: number, draggedTabId: string): void {
@@ -2060,7 +1643,8 @@ class FileExplorerPinController {
         this.statusEl.scrollLeft += direction * TAB_EDGE_SCROLL_STEP_PX;
       }
       this.dragDropIndex = this.computeDropIndex(this.dragCurrentX, this.dragCurrentY, draggedTabId);
-      this.syncDragIndicators();
+      this.moveTabToDropPosition(draggedTabId);
+      this.updateDragTransform(draggedTabId);
     }, TAB_EDGE_SCROLL_INTERVAL_MS);
   }
 
@@ -2077,17 +1661,36 @@ class FileExplorerPinController {
     try {
       this.stopEdgeScroll();
       this.suppressNextTabClick = true;
-      const dropIndex =
-        this.dragDropIndex ??
-        this.computeDropIndex(this.dragCurrentX, this.dragCurrentY, tabId);
-      const reorderedTabs = reorderTabs(this.tabs, tabId, dropIndex);
-      if (!areTabOrdersEqual(this.tabs, reorderedTabs)) {
-        this.tabs = reorderedTabs;
-        await this.persistState();
-        this.renderStatus();
+
+      if (this.statusEl) {
+        const newOrder: string[] = [];
+        for (const tabEl of Array.from(
+          this.statusEl.querySelectorAll<HTMLElement>(
+            ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-floating)",
+          ),
+        )) {
+          const id = tabEl.dataset.tabId;
+          if (id) {
+            newOrder.push(id);
+          }
+        }
+
+        const reorderedTabs: ExplorerTabState[] = [];
+        for (const id of newOrder) {
+          const tab = this.tabs.find((t) => t.id === id);
+          if (tab) {
+            reorderedTabs.push(tab);
+          }
+        }
+
+        if (!areTabOrdersEqual(this.tabs, reorderedTabs)) {
+          this.tabs = reorderedTabs;
+          await this.persistState();
+        }
       }
     } finally {
       this.resetTabDragState();
+      this.renderStatus();
     }
   }
 
@@ -2100,6 +1703,10 @@ class FileExplorerPinController {
     this.dragCandidateTabId = null;
     this.draggingTabId = null;
     this.dragDropIndex = null;
+    this.dragLastDropIndex = null;
+    this.dragPlaceholder?.remove();
+    this.dragPlaceholder = null;
+    this.statusEl?.classList.remove("is-dragging-active");
     if (this.statusEl) {
       this.syncDragIndicators();
     }
@@ -2247,23 +1854,9 @@ class FileExplorerPinSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h3", { text: "General" });
-
-    new Setting(containerEl)
-      .setName("Enable Folder Pin tabs")
-      .setDesc("Add pinned folder tabs to the default file explorer.")
-      .addToggle((toggle) => {
-        toggle.setValue(this.plugin.isEnabled());
-        toggle.onChange(async (value) => {
-          await this.plugin.updateSettings({
-            enableDefaultFileExplorerPinning: value,
-          });
-        });
-      });
-
     new Setting(containerEl)
       .setName("Show \"go up one level\" button")
-      .setDesc("Show the parent-folder button on each Folder Pin tab. Disabled by default.")
+      .setDesc("Show the parent-folder button on each Folder Pin tab.")
       .addToggle((toggle) => {
         toggle.setValue(this.plugin.shouldShowGoUpButton());
         toggle.onChange(async (value) => {
@@ -2272,8 +1865,6 @@ class FileExplorerPinSettingTab extends PluginSettingTab {
           });
         });
       });
-
-    containerEl.createEl("h3", { text: "Tabs" });
 
     new Setting(containerEl)
       .setName("Tab layout")
@@ -2293,144 +1884,11 @@ class FileExplorerPinSettingTab extends PluginSettingTab {
           });
         });
       });
-
-    containerEl.createEl("h3", { text: "Level 1 folders" });
-
-    new Setting(containerEl)
-      .setName("Weight")
-      .setDesc("Weight for folders directly under the current Folder Pin view root.")
-      .addDropdown((dropdown) => {
-        addFolderHierarchyWeightOptions(dropdown);
-        dropdown.setValue(String(this.plugin.getFolderLevelWeight(1)));
-        dropdown.onChange(async (value) => {
-          const weight = parseFolderHierarchyWeight(value);
-          if (weight === null) {
-            return;
-          }
-
-          await this.plugin.updateSettings({
-            folderLevel1Weight: weight,
-          });
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Font size")
-      .setDesc(`Uses whole px steps from ${MIN_FOLDER_LEVEL_1_FONT_SIZE_PX} to ${MAX_FOLDER_LEVEL_1_FONT_SIZE_PX}.`)
-      .addSlider((slider) => {
-        slider.setLimits(MIN_FOLDER_LEVEL_1_FONT_SIZE_PX, MAX_FOLDER_LEVEL_1_FONT_SIZE_PX, 1);
-        slider.setValue(this.plugin.getFolderLevel1FontSizePx());
-        slider.setDynamicTooltip();
-        slider.onChange(async (value) => {
-          await this.plugin.updateSettings({
-            folderLevel1FontSizePx: normalizeFolderFontSizePx(value, DEFAULT_FOLDER_LEVEL_1_FONT_SIZE_PX),
-          });
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Use black")
-      .setDesc("Apply pure black to folders directly under the current Folder Pin view root.")
-      .addToggle((toggle) => {
-        toggle.setValue(this.plugin.isFolderLevelBlackEnabled(1));
-        toggle.onChange(async (value) => {
-          await this.plugin.updateSettings({
-            folderLevel1UseBlack: value,
-          });
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Expanded spacing")
-      .setDesc("Vertical spacing around expanded level 1 folder blocks. Uses whole px steps.")
-      .addSlider((slider) => {
-        slider.setLimits(0, 32, 1);
-        slider.setValue(this.plugin.getFolderExpandedSpacingPx(1));
-        slider.setDynamicTooltip();
-        slider.onChange(async (value) => {
-          await this.plugin.updateSettings({
-            folderLevel1ExpandedSpacingPx: normalizeFolderSpacingPx(value, 0),
-          });
-        });
-      });
-
-    containerEl.createEl("h3", { text: "File Types" });
-
-    new Setting(containerEl)
-      .setName("File type marker style")
-      .setDesc("Show file extensions on the left as plain text or a light badge.")
-      .addDropdown((dropdown) => {
-        dropdown.addOption("text", "Text");
-        dropdown.addOption("badge", "Badge");
-        dropdown.setValue(this.plugin.getFileTypeMarkerStyle());
-        dropdown.onChange(async (value) => {
-          if (!isFileTypeMarkerStyle(value)) {
-            return;
-          }
-
-          await this.plugin.updateSettings({
-            fileTypeMarkerStyle: value,
-          });
-        });
-      });
   }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function isFolderHierarchyWeight(value: unknown): value is FolderHierarchyWeight {
-  return value === 400 || value === 500 || value === 600 || value === 700;
-}
-
-function normalizeFolderHierarchyWeight(
-  value: unknown,
-  fallback: FolderHierarchyWeight,
-): FolderHierarchyWeight {
-  return isFolderHierarchyWeight(value) ? value : fallback;
-}
-
-function parseFolderHierarchyWeight(value: string): FolderHierarchyWeight | null {
-  const parsed = Number.parseInt(value, 10);
-  return isFolderHierarchyWeight(parsed) ? parsed : null;
-}
-
-function normalizeFolderSpacingPx(value: unknown, fallback: number): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return fallback;
-  }
-
-  return Math.max(0, Math.round(value));
-}
-
-function normalizeFolderFontSizePx(value: unknown, fallback: number): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return fallback;
-  }
-
-  const normalized = Math.round(value);
-  return Math.max(
-    MIN_FOLDER_LEVEL_1_FONT_SIZE_PX,
-    Math.min(MAX_FOLDER_LEVEL_1_FONT_SIZE_PX, normalized),
-  );
-}
-
-function addFolderHierarchyWeightOptions(
-  dropdown: { addOption(value: string, label: string): unknown },
-): void {
-  dropdown.addOption("400", "400 Normal");
-  dropdown.addOption("500", "500 Medium");
-  dropdown.addOption("600", "600 Semibold");
-  dropdown.addOption("700", "700 Bold");
-}
-
-function isFileTypeMarkerStyle(value: unknown): value is FileTypeMarkerStyle {
-  return value === "text" || value === "badge";
-}
-
-function normalizeFileTypeMarkerStyle(value: unknown): FileTypeMarkerStyle {
-  return isFileTypeMarkerStyle(value) ? value : DEFAULT_FILE_TYPE_MARKER_STYLE;
 }
 
 function isTabLayout(value: unknown): value is TabLayout {
@@ -2459,14 +1917,6 @@ function isDescendantPath(path: string, rootPath: string): boolean {
 
 function getPathDepth(path: string): number {
   return path.length === 0 ? 0 : path.split("/").length;
-}
-
-function getRelativeFolderDepth(path: string, rootPath: string): number {
-  if (path === rootPath || !isDescendantPath(path, rootPath)) {
-    return 0;
-  }
-
-  return Math.max(0, getPathDepth(path) - getPathDepth(rootPath));
 }
 
 function rewritePathPrefix(path: string, oldPath: string, newPath: string): string {
@@ -2577,30 +2027,6 @@ function getParentPath(path: string): string {
 
 function joinVaultPath(parentPath: string, childName: string): string {
   return parentPath.length > 0 ? `${parentPath}/${childName}` : childName;
-}
-
-function getAvailableChildPath(
-  vault: App["vault"],
-  parentPath: string,
-  baseName: string,
-  extension = "",
-): string {
-  const normalizedExtension = extension.length > 0 && !extension.startsWith(".")
-    ? `.${extension}`
-    : extension;
-
-  let index = 0;
-  while (true) {
-    const suffix = index === 0 ? "" : ` ${index}`;
-    const candidate = normalizePath(
-      joinVaultPath(parentPath, `${baseName}${suffix}${normalizedExtension}`),
-    );
-    if (!vault.getAbstractFileByPath(candidate)) {
-      return candidate;
-    }
-
-    index += 1;
-  }
 }
 
 function uniquePaths(paths: string[]): string[] {
@@ -2755,28 +2181,11 @@ function parsePluginData(raw: unknown): PluginData {
 
   const settingsSource = isRecord(raw.settings) ? raw.settings : raw;
   const settings: PluginSettings = {
-    ...DEFAULT_SETTINGS,
     showGoUpButton:
       typeof settingsSource.showGoUpButton === "boolean"
         ? settingsSource.showGoUpButton
         : DEFAULT_SETTINGS.showGoUpButton,
     tabLayout: normalizeTabLayout(settingsSource.tabLayout),
-    folderLevel1Weight: isFolderHierarchyWeight(settingsSource.folderLevel1Weight)
-      ? settingsSource.folderLevel1Weight
-      : DEFAULT_SETTINGS.folderLevel1Weight,
-    folderLevel1FontSizePx: normalizeFolderFontSizePx(
-      settingsSource.folderLevel1FontSizePx,
-      DEFAULT_SETTINGS.folderLevel1FontSizePx,
-    ),
-    folderLevel1ExpandedSpacingPx: normalizeFolderSpacingPx(
-      settingsSource.folderLevel1ExpandedSpacingPx,
-      DEFAULT_SETTINGS.folderLevel1ExpandedSpacingPx,
-    ),
-    folderLevel1UseBlack:
-      typeof settingsSource.folderLevel1UseBlack === "boolean"
-        ? settingsSource.folderLevel1UseBlack
-        : DEFAULT_SETTINGS.folderLevel1UseBlack,
-    fileTypeMarkerStyle: normalizeFileTypeMarkerStyle(settingsSource.fileTypeMarkerStyle),
   };
 
   const persistedLeaves: Record<string, PersistedLeafState | undefined> = {};
@@ -2919,16 +2328,6 @@ function waitForNextFrame(): Promise<void> {
   return new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
-}
-
-function findDirectChildByClass(parent: HTMLElement, className: string): HTMLElement | null {
-  for (const child of Array.from(parent.children)) {
-    if (child instanceof HTMLElement && child.classList.contains(className)) {
-      return child;
-    }
-  }
-
-  return null;
 }
 
 function getLeafId(leaf: WorkspaceLeaf): string {
