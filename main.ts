@@ -366,6 +366,7 @@ class FileExplorerPinController {
   private dragPlaceholder: HTMLDivElement | null = null;
   private dragInitialPointerX = 0;
   private dragInitialPointerY = 0;
+  private dragInitialTabRect: DOMRect | null = null;
   private dragLastDropIndex: number | null = null;
   private suppressNextTabClick = false;
   private edgeScrollTimer: number | null = null;
@@ -1477,17 +1478,17 @@ class FileExplorerPinController {
       return;
     }
 
-    this.dragPlaceholder = createDiv({ cls: "file-explorer-pin-tab is-drag-placeholder" });
-    tabEl.parentNode?.insertBefore(this.dragPlaceholder, tabEl);
-
     const rect = tabEl.getBoundingClientRect();
-    tabEl.classList.add("is-dragging", "is-drag-floating");
-    tabEl.style.transform = `translate(${rect.left}px, ${rect.top}px)`;
-    tabEl.style.width = `${rect.width}px`;
-
+    this.dragInitialTabRect = rect;
     this.dragInitialPointerX = this.dragCurrentX - rect.left;
     this.dragInitialPointerY = this.dragCurrentY - rect.top;
 
+    this.dragPlaceholder = createDiv({ cls: "file-explorer-pin-tab is-drag-placeholder" });
+    this.dragPlaceholder.style.width = `${rect.width}px`;
+    this.dragPlaceholder.style.height = `${rect.height}px`;
+    tabEl.parentNode?.insertBefore(this.dragPlaceholder, tabEl);
+
+    tabEl.classList.add("is-dragging", "is-drag-active");
     this.statusEl.classList.add("is-dragging-active");
   }
 
@@ -1503,7 +1504,7 @@ class FileExplorerPinController {
 
     const remainingTabs = Array.from(
       this.statusEl.querySelectorAll<HTMLElement>(
-        ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-floating)",
+        ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-active)",
       ),
     );
     const boundedIndex = Math.max(0, Math.min(this.dragDropIndex, remainingTabs.length));
@@ -1524,7 +1525,7 @@ class FileExplorerPinController {
   }
 
   private updateDragTransform(tabId: string): void {
-    if (!this.statusEl) {
+    if (!this.statusEl || !this.dragInitialTabRect) {
       return;
     }
 
@@ -1535,7 +1536,10 @@ class FileExplorerPinController {
       return;
     }
 
-    tabEl.style.transform = `translate(${this.dragCurrentX - this.dragInitialPointerX}px, ${this.dragCurrentY - this.dragInitialPointerY}px)`;
+    const desiredX = this.dragCurrentX - this.dragInitialPointerX;
+    const desiredY = this.dragCurrentY - this.dragInitialPointerY;
+    const tabRect = tabEl.getBoundingClientRect();
+    tabEl.style.transform = `translate(${desiredX - tabRect.left}px, ${desiredY - tabRect.top}px)`;
   }
 
   private computeDropIndex(pointerX: number, pointerY: number, draggedTabId: string): number {
@@ -1546,7 +1550,7 @@ class FileExplorerPinController {
     const tabLayout = this.plugin.getTabLayout();
     const tabEls = Array.from(
       this.statusEl.querySelectorAll<HTMLElement>(
-        ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-floating)",
+        ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-active)",
       ),
     );
 
@@ -1571,7 +1575,7 @@ class FileExplorerPinController {
     }
 
     for (const tabEl of Array.from(this.statusEl.querySelectorAll<HTMLElement>(".file-explorer-pin-tab"))) {
-      tabEl.classList.remove("is-dragging", "is-drag-floating", "is-drop-before", "is-drop-after");
+      tabEl.classList.remove("is-dragging", "is-drag-active", "is-drop-before", "is-drop-after");
     }
 
     if (this.draggingTabId === null) {
@@ -1666,7 +1670,7 @@ class FileExplorerPinController {
         const newOrder: string[] = [];
         for (const tabEl of Array.from(
           this.statusEl.querySelectorAll<HTMLElement>(
-            ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-floating)",
+            ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-active)",
           ),
         )) {
           const id = tabEl.dataset.tabId;
@@ -1704,6 +1708,7 @@ class FileExplorerPinController {
     this.draggingTabId = null;
     this.dragDropIndex = null;
     this.dragLastDropIndex = null;
+    this.dragInitialTabRect = null;
     this.dragPlaceholder?.remove();
     this.dragPlaceholder = null;
     this.statusEl?.classList.remove("is-dragging-active");

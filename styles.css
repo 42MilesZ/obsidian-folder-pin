@@ -92,9 +92,8 @@
   cursor: grabbing;
 }
 
-.file-explorer-pin-tab.is-drag-floating {
-  position: fixed;
-  z-index: 9999;
+.file-explorer-pin-tab.is-drag-active {
+  z-index: 10;
   pointer-events: none;
   opacity: 0.85;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
@@ -118,7 +117,7 @@
   cursor: grabbing;
 }
 
-.file-explorer-pin-status.is-dragging-active .file-explorer-pin-tab:not(.is-drag-floating):not(.is-drag-placeholder) {
+.file-explorer-pin-status.is-dragging-active .file-explorer-pin-tab:not(.is-drag-active):not(.is-drag-placeholder) {
   transition: transform 150ms ease;
 }
 
