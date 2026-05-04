@@ -25,10 +25,6 @@ const ROOT_DROP_ORIGINAL_TITLE_ATTR = "data-fep-original-title";
 const ROOT_DROP_ORIGINAL_ARIA_LABEL_ATTR = "data-fep-original-aria-label";
 const DEFAULT_TAB_LAYOUT: TabLayout = "grid";
 const CONTEXT_INFO_MAX_AGE_MS = 2000;
-const TAB_DRAG_THRESHOLD_PX = 6;
-const TAB_EDGE_SCROLL_TRIGGER_PX = 28;
-const TAB_EDGE_SCROLL_STEP_PX = 14;
-const TAB_EDGE_SCROLL_INTERVAL_MS = 16;
 
 type TabLayout = "vertical" | "horizontal" | "grid";
 
@@ -355,71 +351,11 @@ class FileExplorerPinController {
   private tabs: ExplorerTabState[] = [];
   private activeTabId: string | null = null;
   private snapshotSaveTimer: number | null = null;
-  private dragPointerId: number | null = null;
-  private dragCandidateTabId: string | null = null;
-  private draggingTabId: string | null = null;
-  private dragStartX = 0;
-  private dragStartY = 0;
-  private dragCurrentX = 0;
-  private dragCurrentY = 0;
-  private dragDropIndex: number | null = null;
-  private dragPlaceholder: HTMLDivElement | null = null;
-  private dragInitialPointerX = 0;
-  private dragInitialPointerY = 0;
-  private dragInitialTabRect: DOMRect | null = null;
-  private dragLastDropIndex: number | null = null;
   private suppressNextTabClick = false;
-  private edgeScrollTimer: number | null = null;
-  private edgeScrollDirection = 0;
   private draggedExplorerPaths: string[] = [];
   private rootDragContextItem: InternalExplorerItem | null = null;
   private rootDragContextOriginalFile: TAbstractFile | null = null;
   private rootDragContextAliasPath: string | null = null;
-  private readonly handleTabPointerMove = (event: PointerEvent): void => {
-    if (event.pointerId !== this.dragPointerId || this.dragCandidateTabId === null) {
-      return;
-    }
-
-    this.dragCurrentX = event.clientX;
-    this.dragCurrentY = event.clientY;
-    const deltaX = event.clientX - this.dragStartX;
-    const deltaY = event.clientY - this.dragStartY;
-    const movedFarEnough =
-      Math.abs(deltaX) >= TAB_DRAG_THRESHOLD_PX || Math.abs(deltaY) >= TAB_DRAG_THRESHOLD_PX;
-
-    if (this.draggingTabId === null) {
-      if (!movedFarEnough) {
-        return;
-      }
-
-      this.draggingTabId = this.dragCandidateTabId;
-      this.beginTabDomDrag(this.draggingTabId);
-    }
-
-    this.dragDropIndex = this.computeDropIndex(event.clientX, event.clientY, this.draggingTabId);
-    this.moveTabToDropPosition(this.draggingTabId);
-    this.updateDragTransform(this.draggingTabId);
-
-    event.preventDefault();
-    this.updateEdgeScroll(event.clientX, event.clientY, this.draggingTabId);
-  };
-  private readonly handleTabPointerUp = (event: PointerEvent): void => {
-    if (event.pointerId !== this.dragPointerId) {
-      return;
-    }
-
-    const draggingTabId = this.draggingTabId;
-    if (draggingTabId !== null) {
-      event.preventDefault();
-      void this.finishTabPointerDrag(draggingTabId);
-      return;
-    }
-
-    this.resetTabDragState();
-  };
-  private readonly handleTabPointerCancel = (): void => {
-    this.resetTabDragState();
-  };
 
   constructor(
     plugin: FileExplorerPinPlugin,
@@ -480,7 +416,6 @@ class FileExplorerPinController {
       window.clearTimeout(this.snapshotSaveTimer);
       this.snapshotSaveTimer = null;
     }
-    this.resetTabDragState();
     this.draggedExplorerPaths = [];
 
     this.statusEl?.remove();
@@ -1053,7 +988,6 @@ class FileExplorerPinController {
   private renderStatus(): void {
     const headerEl = this.view.containerEl.querySelector<HTMLElement>(".nav-header");
     if (!headerEl) {
-      this.resetTabDragState();
       this.statusEl?.remove();
       this.statusEl = null;
       return;
@@ -1083,7 +1017,6 @@ class FileExplorerPinController {
       headerEl.insertAdjacentElement("afterend", this.statusEl);
     }
     this.scrollActiveTabIntoView();
-    this.syncDragIndicators();
   }
 
   private syncStatusActiveState(): void {
@@ -1098,7 +1031,6 @@ class FileExplorerPinController {
     }
 
     this.scrollActiveTabIntoView();
-    this.syncDragIndicators();
   }
 
   private refreshView(): void {
@@ -1267,10 +1199,9 @@ class FileExplorerPinController {
     });
     tabEl.dataset.tabId = tab.id;
     tabEl.classList.toggle("is-active", tab.id === this.activeTabId);
-    tabEl.classList.toggle("is-dragging", tab.id === this.draggingTabId);
     tabEl.setAttribute("role", "button");
     tabEl.tabIndex = 0;
-    tabEl.setAttribute("title", this.getTabTitle(tab));
+    tabEl.setAttribute("aria-label", this.getTabTitle(tab));
     tabEl.addEventListener("click", (event) => {
       if (this.suppressNextTabClick) {
         this.suppressNextTabClick = false;
@@ -1289,18 +1220,6 @@ class FileExplorerPinController {
       event.preventDefault();
       void this.activateTab(tab.id);
     });
-    tabEl.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) {
-        return;
-      }
-
-      const target = event.target;
-      if (target instanceof HTMLElement && target.closest(".file-explorer-pin-tab-action")) {
-        return;
-      }
-
-      this.beginTabPointerDrag(tab.id, event);
-    });
 
     const bodyEl = tabEl.createDiv({
       cls: "file-explorer-pin-tab-body",
@@ -1313,11 +1232,10 @@ class FileExplorerPinController {
     if (this.plugin.shouldShowGoUpButton()) {
       const parentFolder = this.getParentFolderForTab(tab);
       const upButton = tabEl.createEl("button", {
-        cls: "clickable-icon file-explorer-pin-tab-action",
+        cls: "file-explorer-pin-tab-action",
         attr: {
           type: "button",
           "aria-label": parentFolder ? "Go up one level" : "Already at top level",
-          title: parentFolder ? `Go up one level: ${parentFolder.name}` : "Already at top level",
         },
       });
       setIcon(upButton, "corner-up-left");
@@ -1330,11 +1248,10 @@ class FileExplorerPinController {
 
     const rootTab = tab.pinnedRootPath === null;
     const pinOrCloseButton = tabEl.createEl("button", {
-      cls: "clickable-icon file-explorer-pin-tab-action",
+      cls: "file-explorer-pin-tab-action",
       attr: {
         type: "button",
         "aria-label": rootTab ? "Close tab" : "Unpin current folder",
-        title: rootTab ? "Close tab" : "Unpin current folder",
       },
     });
     setIcon(pinOrCloseButton, rootTab ? "x" : "pin");
@@ -1353,11 +1270,10 @@ class FileExplorerPinController {
 
   private createAddTabElement(): HTMLButtonElement {
     const buttonEl = createEl("button", {
-      cls: "file-explorer-pin-add-tab clickable-icon",
+      cls: "file-explorer-pin-add-tab",
       attr: {
         type: "button",
         "aria-label": "Add root tab",
-        title: "Add root tab",
       },
     });
     setIcon(buttonEl, "plus");
@@ -1452,269 +1368,6 @@ class FileExplorerPinController {
         inline: "nearest",
       });
     });
-  }
-
-  private beginTabPointerDrag(tabId: string, event: PointerEvent): void {
-    this.resetTabDragState();
-    this.dragPointerId = event.pointerId;
-    this.dragCandidateTabId = tabId;
-    this.dragStartX = event.clientX;
-    this.dragStartY = event.clientY;
-    this.dragCurrentX = event.clientX;
-    window.addEventListener("pointermove", this.handleTabPointerMove, true);
-    window.addEventListener("pointerup", this.handleTabPointerUp, true);
-    window.addEventListener("pointercancel", this.handleTabPointerCancel, true);
-  }
-
-  private beginTabDomDrag(tabId: string): void {
-    if (!this.statusEl) {
-      return;
-    }
-
-    const tabEl = this.statusEl.querySelector<HTMLElement>(
-      `.file-explorer-pin-tab[data-tab-id="${CSS.escape(tabId)}"]`,
-    );
-    if (!tabEl) {
-      return;
-    }
-
-    const rect = tabEl.getBoundingClientRect();
-    this.dragInitialTabRect = rect;
-    this.dragInitialPointerX = this.dragCurrentX - rect.left;
-    this.dragInitialPointerY = this.dragCurrentY - rect.top;
-
-    this.dragPlaceholder = createDiv({ cls: "file-explorer-pin-tab is-drag-placeholder" });
-    this.dragPlaceholder.style.width = `${rect.width}px`;
-    this.dragPlaceholder.style.height = `${rect.height}px`;
-    tabEl.parentNode?.insertBefore(this.dragPlaceholder, tabEl);
-
-    tabEl.classList.add("is-dragging", "is-drag-active");
-    this.statusEl.classList.add("is-dragging-active");
-  }
-
-  private moveTabToDropPosition(tabId: string): void {
-    if (!this.statusEl || !this.dragPlaceholder || this.dragDropIndex === null) {
-      return;
-    }
-
-    if (this.dragDropIndex === this.dragLastDropIndex) {
-      return;
-    }
-    this.dragLastDropIndex = this.dragDropIndex;
-
-    const remainingTabs = Array.from(
-      this.statusEl.querySelectorAll<HTMLElement>(
-        ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-active)",
-      ),
-    );
-    const boundedIndex = Math.max(0, Math.min(this.dragDropIndex, remainingTabs.length));
-
-    if (boundedIndex >= remainingTabs.length) {
-      const addTabEl = this.statusEl.querySelector<HTMLElement>(".file-explorer-pin-add-tab");
-      if (addTabEl) {
-        this.statusEl.insertBefore(this.dragPlaceholder, addTabEl);
-      } else {
-        this.statusEl.appendChild(this.dragPlaceholder);
-      }
-    } else {
-      const targetTab = remainingTabs[boundedIndex];
-      if (targetTab && targetTab !== this.dragPlaceholder) {
-        this.statusEl.insertBefore(this.dragPlaceholder, targetTab);
-      }
-    }
-  }
-
-  private updateDragTransform(tabId: string): void {
-    if (!this.statusEl || !this.dragInitialTabRect) {
-      return;
-    }
-
-    const tabEl = this.statusEl.querySelector<HTMLElement>(
-      `.file-explorer-pin-tab[data-tab-id="${CSS.escape(tabId)}"]`,
-    );
-    if (!tabEl) {
-      return;
-    }
-
-    const desiredX = this.dragCurrentX - this.dragInitialPointerX;
-    const desiredY = this.dragCurrentY - this.dragInitialPointerY;
-    const tabRect = tabEl.getBoundingClientRect();
-    tabEl.style.transform = `translate(${desiredX - tabRect.left}px, ${desiredY - tabRect.top}px)`;
-  }
-
-  private computeDropIndex(pointerX: number, pointerY: number, draggedTabId: string): number {
-    if (!this.statusEl) {
-      return 0;
-    }
-
-    const tabLayout = this.plugin.getTabLayout();
-    const tabEls = Array.from(
-      this.statusEl.querySelectorAll<HTMLElement>(
-        ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-active)",
-      ),
-    );
-
-    for (let index = 0; index < tabEls.length; index += 1) {
-      const rect = tabEls[index].getBoundingClientRect();
-      const midpoint =
-        (tabLayout === "vertical" || tabLayout === "grid")
-          ? rect.top + rect.height / 2
-          : rect.left + rect.width / 2;
-      const pointerPosition = (tabLayout === "vertical" || tabLayout === "grid") ? pointerY : pointerX;
-      if (pointerPosition < midpoint) {
-        return index;
-      }
-    }
-
-    return tabEls.length;
-  }
-
-  private syncDragIndicators(): void {
-    if (!this.statusEl) {
-      return;
-    }
-
-    for (const tabEl of Array.from(this.statusEl.querySelectorAll<HTMLElement>(".file-explorer-pin-tab"))) {
-      tabEl.classList.remove("is-dragging", "is-drag-active", "is-drop-before", "is-drop-after");
-    }
-
-    if (this.draggingTabId === null) {
-      return;
-    }
-
-    const draggingEl = this.statusEl.querySelector<HTMLElement>(
-      `.file-explorer-pin-tab[data-tab-id="${CSS.escape(this.draggingTabId)}"]`,
-    );
-    draggingEl?.classList.add("is-dragging");
-  }
-
-  private updateEdgeScroll(pointerX: number, pointerY: number, draggedTabId: string): void {
-    if (!this.statusEl) {
-      this.stopEdgeScroll();
-      return;
-    }
-
-    const tabLayout = this.plugin.getTabLayout();
-    const rect = this.statusEl.getBoundingClientRect();
-    if (tabLayout === "vertical" || tabLayout === "grid") {
-      if (pointerY <= rect.top + TAB_EDGE_SCROLL_TRIGGER_PX) {
-        this.startEdgeScroll(-1, draggedTabId);
-        return;
-      }
-
-      if (pointerY >= rect.bottom - TAB_EDGE_SCROLL_TRIGGER_PX) {
-        this.startEdgeScroll(1, draggedTabId);
-        return;
-      }
-
-      this.stopEdgeScroll();
-      return;
-    }
-
-    if (pointerX <= rect.left + TAB_EDGE_SCROLL_TRIGGER_PX) {
-      this.startEdgeScroll(-1, draggedTabId);
-      return;
-    }
-
-    if (pointerX >= rect.right - TAB_EDGE_SCROLL_TRIGGER_PX) {
-      this.startEdgeScroll(1, draggedTabId);
-      return;
-    }
-
-    this.stopEdgeScroll();
-  }
-
-  private startEdgeScroll(direction: -1 | 1, draggedTabId: string): void {
-    if (
-      this.edgeScrollTimer !== null &&
-      this.edgeScrollDirection === direction &&
-      this.draggingTabId === draggedTabId
-    ) {
-      return;
-    }
-
-    this.stopEdgeScroll();
-    this.edgeScrollDirection = direction;
-    this.edgeScrollTimer = window.setInterval(() => {
-      if (!this.statusEl || this.draggingTabId !== draggedTabId) {
-        this.stopEdgeScroll();
-        return;
-      }
-
-      if (this.plugin.getTabLayout() === "vertical" || this.plugin.getTabLayout() === "grid") {
-        this.statusEl.scrollTop += direction * TAB_EDGE_SCROLL_STEP_PX;
-      } else {
-        this.statusEl.scrollLeft += direction * TAB_EDGE_SCROLL_STEP_PX;
-      }
-      this.dragDropIndex = this.computeDropIndex(this.dragCurrentX, this.dragCurrentY, draggedTabId);
-      this.moveTabToDropPosition(draggedTabId);
-      this.updateDragTransform(draggedTabId);
-    }, TAB_EDGE_SCROLL_INTERVAL_MS);
-  }
-
-  private stopEdgeScroll(): void {
-    if (this.edgeScrollTimer !== null) {
-      window.clearInterval(this.edgeScrollTimer);
-      this.edgeScrollTimer = null;
-    }
-
-    this.edgeScrollDirection = 0;
-  }
-
-  private async finishTabPointerDrag(tabId: string): Promise<void> {
-    try {
-      this.stopEdgeScroll();
-      this.suppressNextTabClick = true;
-
-      if (this.statusEl) {
-        const newOrder: string[] = [];
-        for (const tabEl of Array.from(
-          this.statusEl.querySelectorAll<HTMLElement>(
-            ".file-explorer-pin-tab[data-tab-id]:not(.is-drag-active)",
-          ),
-        )) {
-          const id = tabEl.dataset.tabId;
-          if (id) {
-            newOrder.push(id);
-          }
-        }
-
-        const reorderedTabs: ExplorerTabState[] = [];
-        for (const id of newOrder) {
-          const tab = this.tabs.find((t) => t.id === id);
-          if (tab) {
-            reorderedTabs.push(tab);
-          }
-        }
-
-        if (!areTabOrdersEqual(this.tabs, reorderedTabs)) {
-          this.tabs = reorderedTabs;
-          await this.persistState();
-        }
-      }
-    } finally {
-      this.resetTabDragState();
-      this.renderStatus();
-    }
-  }
-
-  private resetTabDragState(): void {
-    this.stopEdgeScroll();
-    window.removeEventListener("pointermove", this.handleTabPointerMove, true);
-    window.removeEventListener("pointerup", this.handleTabPointerUp, true);
-    window.removeEventListener("pointercancel", this.handleTabPointerCancel, true);
-    this.dragPointerId = null;
-    this.dragCandidateTabId = null;
-    this.draggingTabId = null;
-    this.dragDropIndex = null;
-    this.dragLastDropIndex = null;
-    this.dragInitialTabRect = null;
-    this.dragPlaceholder?.remove();
-    this.dragPlaceholder = null;
-    this.statusEl?.classList.remove("is-dragging-active");
-    if (this.statusEl) {
-      this.syncDragIndicators();
-    }
   }
 
   private saveActiveTabViewSnapshot(): void {
@@ -1992,23 +1645,6 @@ function areSnapshotsEqual(left: ExplorerSnapshot, right: ExplorerSnapshot): boo
   return left.expandedPaths.every((path, index) => path === right.expandedPaths[index]);
 }
 
-function reorderTabs(
-  tabs: ExplorerTabState[],
-  draggedTabId: string,
-  dropIndex: number,
-): ExplorerTabState[] {
-  const draggedTab = tabs.find((tab) => tab.id === draggedTabId);
-  if (!draggedTab) {
-    return [...tabs];
-  }
-
-  const remainingTabs = tabs.filter((tab) => tab.id !== draggedTabId);
-  const boundedDropIndex = Math.max(0, Math.min(dropIndex, remainingTabs.length));
-  const reorderedTabs = [...remainingTabs];
-  reorderedTabs.splice(boundedDropIndex, 0, draggedTab);
-  return reorderedTabs;
-}
-
 function getExplorerItemPathFromElement(target: EventTarget | null): string | null {
   if (!(target instanceof HTMLElement)) {
     return null;
@@ -2133,7 +1769,7 @@ function replaceRootNameInFloatingNodes(
       continue;
     }
 
-    textNode.nodeValue = value.replaceAll(rootName, pinnedRootName);
+    textNode.nodeValue = value.split(rootName).join(pinnedRootName);
   }
 }
 
@@ -2166,14 +1802,6 @@ function isFloatingElement(element: HTMLElement): boolean {
     style.position === "absolute" ||
     element.getAttribute("role") === "tooltip"
   );
-}
-
-function areTabOrdersEqual(left: ExplorerTabState[], right: ExplorerTabState[]): boolean {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  return left.every((tab, index) => tab.id === right[index]?.id);
 }
 
 function parsePluginData(raw: unknown): PluginData {
