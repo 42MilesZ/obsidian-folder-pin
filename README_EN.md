@@ -2,8 +2,6 @@
 
 Pin folders as tabs in the Obsidian file explorer. Switch project contexts in one click instead of scrolling and collapsing folders.
 
-> ⚠️ Work in progress — this README is a skeleton awaiting screenshots and a demo GIF before submission to the Obsidian community plugin marketplace.
-
 ## Why
 
 Working across many large projects in a single vault means constantly expanding, collapsing, and scrolling the file tree to switch context. Folder Pin lets you pin a folder as the root of an explorer tab, so each project gets its own focused view, and switching between them is a single click.
@@ -14,10 +12,7 @@ Working across many large projects in a single vault means constantly expanding,
 - **Multiple explorer views** — open additional Folder Pin explorers via the command `Open another Folder Pin explorer`.
 - **Per-tab state** — expand state, scroll position, and selected file are remembered per tab.
 - **Layout options** — switch the tab bar between grid and other layouts.
-- **Typography controls** — adjust folder font weight, size, and spacing for the top-level pinned folder.
-- **File type markers** — show a small text marker indicating file type next to file names.
 - **Optional Go Up button** — quickly jump from a pinned subfolder back to its parent.
-- **Default explorer integration** — optionally apply pinning behavior to Obsidian's built-in file explorer too.
 
 ## Demo
 
@@ -47,11 +42,8 @@ Working across many large projects in a single vault means constantly expanding,
 
 | Setting | What it does |
 |---|---|
-| Enable default file explorer pinning | Apply pinning behavior to Obsidian's native file explorer too |
 | Show "Go up" button | Show a quick parent-folder button at the top of each tab |
-| Tab layout | `grid` or alternate layout for the tab bar |
-| Folder level 1 weight / font size / spacing | Style the top-level pinned folder name |
-| File type marker style | `text` marker showing file extension next to file names |
+| Tab layout | `grid`, `vertical`, or `horizontal` layout for the tab bar |
 
 ## Compatibility
 
@@ -70,4 +62,4 @@ To test in a vault, symlink or copy the build output and `manifest.json` / `styl
 
 ## License
 
-[MIT](./LICENSE) © 2026 Chu HanYue
+[MIT](./LICENSE) © 2026 Chu HanYu

@@ -4,6 +4,6 @@
   "version": "0.2.0",
   "minAppVersion": "1.6.2",
   "description": "Pin folders as tabs in the default file explorer.",
-  "author": "Chu HanYue",
+  "author": "Chu HanYu",
   "isDesktopOnly": true
 }
