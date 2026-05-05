@@ -350,9 +350,6 @@ class FileExplorerPinController {
   private snapshotSaveTimer: number | null = null;
   private suppressNextTabClick = false;
   private draggedExplorerPaths: string[] = [];
-  private rootDragContextItem: InternalExplorerItem | null = null;
-  private rootDragContextOriginalFile: TAbstractFile | null = null;
-  private rootDragContextAliasPath: string | null = null;
 
   constructor(
     plugin: FileExplorerPinPlugin,
@@ -417,7 +414,7 @@ class FileExplorerPinController {
 
     this.statusEl?.remove();
     this.statusEl = null;
-    this.restoreRootDragContext();
+    this.restoreRootDisplayState();
     this.view.containerEl.classList.remove(MANAGED_EXPLORER_CLASS);
     this.tabs = [];
     this.activeTabId = null;
@@ -427,7 +424,6 @@ class FileExplorerPinController {
     this.ensureTabs();
     this.renderStatus();
     this.refreshView();
-    this.syncRootDragContext();
   }
 
   async pin(folderPath: string): Promise<void> {
@@ -635,13 +631,26 @@ class FileExplorerPinController {
 
       const titleEl = target.closest<HTMLElement>(".nav-folder-title[data-path]");
       const path = titleEl?.dataset.path;
+      const hierarchyRootPath = this.getHierarchyRootPath();
+      if (titleEl && path === this.rootPath && hierarchyRootPath !== this.rootPath) {
+        const folder = this.getFolder(hierarchyRootPath);
+        if (!folder) {
+          return;
+        }
+
+        this.plugin.noteContextTarget(this, folder.path, "pinned-root-blank-area");
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.showNativeFolderMenu(event, folder);
+        return;
+      }
+
       if (!path) {
         if (getExplorerItemPathFromElement(target) !== null) {
           return;
         }
 
         const containerEl = target.closest<HTMLElement>(".nav-files-container");
-        const hierarchyRootPath = this.getHierarchyRootPath();
         if (!containerEl || hierarchyRootPath === this.rootPath) {
           return;
         }
@@ -815,114 +824,47 @@ class FileExplorerPinController {
     }
   }
 
-  private syncRootDragContext(): void {
+  private syncRootDisplayState(): void {
+    this.restoreLegacyRootDropPaths();
+
     const pinnedRoot = this.getPinnedRoot();
     if (!pinnedRoot) {
-      this.restoreRootDragContext();
+      this.restoreRootDisplayNames();
       return;
     }
 
     const rootItem = this.view.fileItems?.[this.rootPath] ?? null;
-    if (rootItem && this.rootDragContextOriginalFile === null) {
-      this.rootDragContextOriginalFile = rootItem.file;
-    }
-
-    if (rootItem) {
-      this.rootDragContextItem = rootItem;
-      rootItem.file = pinnedRoot;
-      this.installRootItemAlias(rootItem, pinnedRoot.path);
-    }
-
-    for (const element of this.getRootDragContextElements(rootItem)) {
-      overrideRootDropPath(element, pinnedRoot.path);
-    }
-
-    for (const element of this.getRootDragContextLabelElements(rootItem)) {
+    for (const element of this.getRootDisplayNameElements(rootItem)) {
       overrideRootDisplayName(element, pinnedRoot.name);
     }
   }
 
-  private restoreRootDragContext(): void {
-    const rootItem = this.rootDragContextItem ?? this.view.fileItems?.[this.rootPath] ?? null;
-    if (rootItem && this.rootDragContextOriginalFile) {
-      rootItem.file = this.rootDragContextOriginalFile;
-    }
+  private restoreRootDisplayState(): void {
+    this.restoreLegacyRootDropPaths();
+    this.restoreRootDisplayNames();
+  }
 
-    if (this.rootDragContextAliasPath && this.view.fileItems) {
-      const aliasedItem = this.view.fileItems[this.rootDragContextAliasPath];
-      if (aliasedItem === this.rootDragContextItem) {
-        delete this.view.fileItems[this.rootDragContextAliasPath];
-      }
-    }
-
-    for (const element of this.getRootDragContextElements(rootItem)) {
+  private restoreLegacyRootDropPaths(): void {
+    for (const element of Array.from(
+      this.view.containerEl.querySelectorAll<HTMLElement>(
+        `[${ROOT_DROP_PATH_ATTR}], [${ROOT_DROP_ORIGINAL_PATH_ATTR}]`,
+      ),
+    )) {
       restoreRootDropPath(element);
     }
+  }
 
-    for (const element of this.getRootDragContextLabelElements(rootItem)) {
+  private restoreRootDisplayNames(): void {
+    for (const element of Array.from(
+      this.view.containerEl.querySelectorAll<HTMLElement>(
+        `[${ROOT_DROP_ORIGINAL_NAME_ATTR}], [${ROOT_DROP_ORIGINAL_TITLE_ATTR}], [${ROOT_DROP_ORIGINAL_ARIA_LABEL_ATTR}]`,
+      ),
+    )) {
       restoreRootDisplayName(element);
     }
-
-    this.rootDragContextItem = null;
-    this.rootDragContextOriginalFile = null;
-    this.rootDragContextAliasPath = null;
   }
 
-  private installRootItemAlias(rootItem: InternalExplorerItem, aliasPath: string): void {
-    if (!this.view.fileItems) {
-      this.rootDragContextAliasPath = aliasPath;
-      return;
-    }
-
-    if (
-      this.rootDragContextAliasPath &&
-      this.rootDragContextAliasPath !== aliasPath &&
-      this.view.fileItems[this.rootDragContextAliasPath] === rootItem
-    ) {
-      delete this.view.fileItems[this.rootDragContextAliasPath];
-    }
-
-    this.view.fileItems[aliasPath] = rootItem;
-    this.rootDragContextAliasPath = aliasPath;
-  }
-
-  private getRootDragContextElements(rootItem: InternalExplorerItem | null): HTMLElement[] {
-    const elements = new Set<HTMLElement>();
-    const scrollContainer = this.getScrollContainer();
-    if (scrollContainer) {
-      elements.add(scrollContainer);
-    }
-
-    if (rootItem?.selfEl) {
-      elements.add(rootItem.selfEl);
-
-      const rootRow = rootItem.selfEl.closest<HTMLElement>(".tree-item-self");
-      if (rootRow) {
-        elements.add(rootRow);
-      }
-
-      const rootFolder = rootItem.selfEl.closest<HTMLElement>(".nav-folder");
-      if (rootFolder) {
-        elements.add(rootFolder);
-      }
-    }
-
-    for (const selector of [
-      ".nav-folder.mod-root",
-      ".nav-folder.mod-root > .nav-folder-title",
-      ".tree-item.mod-root",
-      ".tree-item-self.mod-root",
-      ".nav-files-container",
-    ]) {
-      for (const element of Array.from(this.view.containerEl.querySelectorAll<HTMLElement>(selector))) {
-        elements.add(element);
-      }
-    }
-
-    return Array.from(elements);
-  }
-
-  private getRootDragContextLabelElements(rootItem: InternalExplorerItem | null): HTMLElement[] {
+  private getRootDisplayNameElements(rootItem: InternalExplorerItem | null): HTMLElement[] {
     const elements = new Set<HTMLElement>();
 
     if (rootItem?.selfEl) {
@@ -1031,14 +973,25 @@ class FileExplorerPinController {
   }
 
   private refreshView(): void {
+    this.syncRootDisplayState();
+
     if (typeof this.view.requestSort === "function") {
       this.view.requestSort();
+      this.scheduleRootDisplayStateSync();
       return;
     }
 
     if (typeof this.view.sort === "function") {
       this.view.sort();
     }
+
+    this.scheduleRootDisplayStateSync();
+  }
+
+  private scheduleRootDisplayStateSync(): void {
+    window.requestAnimationFrame(() => {
+      this.syncRootDisplayState();
+    });
   }
 
   private captureSnapshot(): ExplorerSnapshot {
@@ -1665,18 +1618,6 @@ function joinVaultPath(parentPath: string, childName: string): string {
 
 function uniquePaths(paths: string[]): string[] {
   return Array.from(new Set(paths));
-}
-
-function overrideRootDropPath(element: HTMLElement, path: string): void {
-  if (!element.hasAttribute(ROOT_DROP_PATH_ATTR)) {
-    const originalPath = element.getAttribute("data-path");
-    if (originalPath !== null) {
-      element.setAttribute(ROOT_DROP_ORIGINAL_PATH_ATTR, originalPath);
-    }
-  }
-
-  element.setAttribute(ROOT_DROP_PATH_ATTR, path);
-  element.setAttribute("data-path", path);
 }
 
 function restoreRootDropPath(element: HTMLElement): void {
