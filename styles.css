@@ -63,6 +63,11 @@
   min-height: max(12px, calc(var(--icon-s, 16px) - 2px));
   stroke-width: max(1.5px, calc(var(--icon-s-stroke-width, var(--icon-stroke-width, 2px)) - 0.1px));
   pointer-events: none;
+  color: var(--text-muted);
+}
+
+.file-explorer-pin-status .file-explorer-pin-tab-action:hover:not(:disabled) svg.svg-icon {
+  color: var(--text-normal);
 }
 
 .file-explorer-pin-tab {
