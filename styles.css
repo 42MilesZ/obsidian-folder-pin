@@ -83,6 +83,7 @@
   border-radius: var(--file-explorer-pin-tab-radius, 10px);
   background: transparent !important;
   box-shadow: none !important;
+  outline: none;
   position: relative;
 }
 
@@ -97,6 +98,11 @@
 .file-explorer-pin-tab.is-active {
   border-color: var(--interactive-accent);
   background: color-mix(in srgb, transparent 90%, var(--interactive-accent) 10%);
+}
+
+.file-explorer-pin-tab:focus-visible {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, transparent 60%, var(--interactive-accent) 40%);
 }
 
 .file-explorer-pin-tab-body {
