@@ -96,12 +96,12 @@
 }
 
 .file-explorer-pin-tab.is-active {
-  border-color: var(--interactive-accent);
+  border: 1px solid var(--interactive-accent) !important;
   background: color-mix(in srgb, transparent 90%, var(--interactive-accent) 10%);
 }
 
 .file-explorer-pin-tab:focus-visible {
-  border-color: var(--interactive-accent);
+  border: 1px solid var(--interactive-accent) !important;
   box-shadow: 0 0 0 2px color-mix(in srgb, transparent 60%, var(--interactive-accent) 40%);
 }
 
