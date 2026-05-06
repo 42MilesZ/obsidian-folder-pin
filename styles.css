@@ -134,13 +134,13 @@
   border: 0;
   border-radius: 6px;
   cursor: pointer;
-  background: rgba(0, 0, 0, 0.05) !important;
+  background: var(--background-modifier-hover) !important;
   color: var(--text-muted);
   transition: none;
 }
 
 .file-explorer-pin-status .file-explorer-pin-tab-action:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.12) !important;
+  background: var(--background-modifier-hover-hover) !important;
   color: var(--text-normal);
 }
 
@@ -184,7 +184,7 @@
 .file-explorer-pin-status .file-explorer-pin-add-tab:hover {
   color: var(--text-normal);
   border-color: var(--background-modifier-border-hover) !important;
-  background: rgba(0, 0, 0, 0.12) !important;
+  background: var(--background-modifier-hover-hover) !important;
 }
 
 /* Grid (2-column) layout */
