@@ -1,5 +1,13 @@
 .file-explorer-pin-status {
   --file-explorer-pin-tab-radius: 10px;
+  --file-explorer-pin-tab-background: transparent;
+  --file-explorer-pin-tab-background-hover: rgba(0, 0, 0, 0.035);
+  --file-explorer-pin-tab-background-active: rgba(0, 0, 0, 0.045);
+  --file-explorer-pin-tab-border-active: rgba(0, 0, 0, 0.28);
+  --file-explorer-pin-tab-focus-ring: rgba(0, 0, 0, 0.12);
+  --file-explorer-pin-action-background: transparent;
+  --file-explorer-pin-action-background-hover: rgba(0, 0, 0, 0.06);
+  --file-explorer-pin-action-active-color: rgba(0, 0, 0, 0.72);
   display: flex;
   flex: 0 0 auto;
   flex-shrink: 0;
@@ -18,6 +26,17 @@
   box-sizing: border-box;
   scrollbar-width: none;
   -ms-overflow-style: none;
+}
+
+.theme-dark .file-explorer-pin-status {
+  --file-explorer-pin-tab-background: rgba(255, 255, 255, 0.045);
+  --file-explorer-pin-tab-background-hover: rgba(255, 255, 255, 0.065);
+  --file-explorer-pin-tab-background-active: rgba(255, 255, 255, 0.075);
+  --file-explorer-pin-tab-border-active: rgba(255, 255, 255, 0.42);
+  --file-explorer-pin-tab-focus-ring: rgba(255, 255, 255, 0.16);
+  --file-explorer-pin-action-background: rgba(255, 255, 255, 0.05);
+  --file-explorer-pin-action-background-hover: rgba(255, 255, 255, 0.12);
+  --file-explorer-pin-action-active-color: rgba(255, 255, 255, 0.72);
 }
 
 .file-explorer-pin-status[data-layout="horizontal"] {
@@ -81,10 +100,14 @@
   padding: 0.2rem 0.35rem 0.2rem 0.4rem;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--file-explorer-pin-tab-radius, 10px);
-  background: transparent !important;
+  background: var(--file-explorer-pin-tab-background) !important;
   box-shadow: none !important;
   outline: none;
   position: relative;
+}
+
+.file-explorer-pin-status .file-explorer-pin-tab:hover {
+  background: var(--file-explorer-pin-tab-background-hover) !important;
 }
 
 .file-explorer-pin-status[data-layout="vertical"] .file-explorer-pin-tab {
@@ -95,14 +118,14 @@
   box-sizing: border-box;
 }
 
-.file-explorer-pin-tab.is-active {
-  border: 1px solid var(--interactive-accent) !important;
-  background: color-mix(in srgb, transparent 90%, var(--interactive-accent) 10%);
+.file-explorer-pin-status .file-explorer-pin-tab.is-active {
+  border-color: var(--file-explorer-pin-tab-border-active);
+  background: var(--file-explorer-pin-tab-background-active) !important;
 }
 
-.file-explorer-pin-tab:focus-visible {
-  border: 1px solid var(--interactive-accent) !important;
-  box-shadow: 0 0 0 2px color-mix(in srgb, transparent 60%, var(--interactive-accent) 40%);
+.file-explorer-pin-status .file-explorer-pin-tab:focus-visible {
+  border-color: var(--file-explorer-pin-tab-border-active);
+  box-shadow: 0 0 0 2px var(--file-explorer-pin-tab-focus-ring);
 }
 
 .file-explorer-pin-tab-body {
@@ -145,13 +168,13 @@
   border: 0;
   border-radius: 6px;
   cursor: pointer;
-  background: var(--background-modifier-hover) !important;
+  background: var(--file-explorer-pin-action-background) !important;
   color: var(--text-muted);
   transition: none;
 }
 
 .file-explorer-pin-status .file-explorer-pin-tab-action:hover:not(:disabled) {
-  background: var(--background-modifier-hover-hover) !important;
+  background: var(--file-explorer-pin-action-background-hover) !important;
   color: var(--text-normal);
 }
 
@@ -160,8 +183,8 @@
   cursor: default;
 }
 
-.file-explorer-pin-tab-action.is-active {
-  color: var(--interactive-accent);
+.file-explorer-pin-status .file-explorer-pin-tab-action.is-active {
+  color: var(--file-explorer-pin-action-active-color);
 }
 
 .file-explorer-pin-add-tab {
@@ -173,7 +196,7 @@
   justify-content: center;
   border: 1px dashed var(--background-modifier-border) !important;
   border-radius: var(--file-explorer-pin-tab-radius, 10px);
-  background: color-mix(in srgb, transparent 96%, var(--background-modifier-hover) 4%) !important;
+  background: var(--file-explorer-pin-tab-background) !important;
   color: var(--text-muted);
   padding: 0;
 }
@@ -194,8 +217,8 @@
 
 .file-explorer-pin-status .file-explorer-pin-add-tab:hover {
   color: var(--text-normal);
-  border-color: var(--background-modifier-border-hover) !important;
-  background: var(--background-modifier-hover-hover) !important;
+  border-color: var(--file-explorer-pin-tab-border-active) !important;
+  background: var(--file-explorer-pin-tab-background-hover) !important;
 }
 
 /* Grid (2-column) layout */

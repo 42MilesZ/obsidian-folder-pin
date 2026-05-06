@@ -265,7 +265,7 @@ export default class FileExplorerPinPlugin extends Plugin {
 
       const existing = this.controllers.get(leaf);
       if (existing) {
-        existing.refreshUi();
+        existing.syncUi();
         continue;
       }
 
@@ -347,6 +347,7 @@ class FileExplorerPinController {
   private restoring = false;
   private tabs: ExplorerTabState[] = [];
   private activeTabId: string | null = null;
+  private statusRenderKey: string | null = null;
   private snapshotSaveTimer: number | null = null;
   private suppressNextTabClick = false;
   private draggedExplorerPaths: string[] = [];
@@ -414,6 +415,7 @@ class FileExplorerPinController {
 
     this.statusEl?.remove();
     this.statusEl = null;
+    this.statusRenderKey = null;
     this.restoreRootDisplayState();
     this.view.containerEl.classList.remove(MANAGED_EXPLORER_CLASS);
     this.tabs = [];
@@ -424,6 +426,13 @@ class FileExplorerPinController {
     this.ensureTabs();
     this.renderStatus();
     this.refreshView();
+  }
+
+  syncUi(): void {
+    this.ensureTabs();
+    this.renderStatus();
+    this.syncRootDisplayState();
+    this.scheduleRootDisplayStateSync();
   }
 
   async pin(folderPath: string): Promise<void> {
@@ -929,6 +938,7 @@ class FileExplorerPinController {
     if (!headerEl) {
       this.statusEl?.remove();
       this.statusEl = null;
+      this.statusRenderKey = null;
       return;
     }
 
@@ -944,18 +954,42 @@ class FileExplorerPinController {
     }
 
     this.statusEl.dataset.layout = this.plugin.getTabLayout();
-    const fragment = document.createDocumentFragment();
-    for (const tab of this.tabs) {
-      fragment.appendChild(this.createTabElement(tab));
+    const nextRenderKey = this.getStatusRenderKey();
+    const shouldRender =
+      this.statusRenderKey !== nextRenderKey || this.statusEl.childElementCount === 0;
+    if (shouldRender) {
+      const fragment = document.createDocumentFragment();
+      for (const tab of this.tabs) {
+        fragment.appendChild(this.createTabElement(tab));
+      }
+      fragment.appendChild(this.createAddTabElement());
+      this.statusEl.replaceChildren(fragment);
+      this.statusRenderKey = nextRenderKey;
     }
-    fragment.appendChild(this.createAddTabElement());
-    this.statusEl.replaceChildren(fragment);
+
     if (this.statusEl.parentElement !== headerEl.parentElement) {
       headerEl.insertAdjacentElement("afterend", this.statusEl);
     } else if (headerEl.nextElementSibling !== this.statusEl) {
       headerEl.insertAdjacentElement("afterend", this.statusEl);
     }
-    this.scrollActiveTabIntoView();
+    if (shouldRender) {
+      this.scrollActiveTabIntoView();
+    }
+  }
+
+  private getStatusRenderKey(): string {
+    return JSON.stringify({
+      layout: this.plugin.getTabLayout(),
+      showGoUpButton: this.plugin.shouldShowGoUpButton(),
+      activeTabId: this.activeTabId,
+      tabs: this.tabs.map((tab) => ({
+        id: tab.id,
+        pinnedRootPath: tab.pinnedRootPath,
+        label: this.getTabLabel(tab),
+        title: this.getTabTitle(tab),
+        parentPath: this.getParentFolderForTab(tab)?.path ?? null,
+      })),
+    });
   }
 
   private syncStatusActiveState(): void {
