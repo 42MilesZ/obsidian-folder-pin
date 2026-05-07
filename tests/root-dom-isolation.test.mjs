@@ -20,3 +20,21 @@ test("tab status rendering is skipped when the rendered state is unchanged", () 
   assert.match(source, /this\.statusRenderKey !== nextRenderKey/);
   assert.match(source, /this\.statusEl\.replaceChildren\(fragment\);/);
 });
+
+test("startup sync waits for hidden file explorer leaves before attaching controllers", () => {
+  const syncStartIndex = source.indexOf("private syncControllers()");
+  const syncEndIndex = source.indexOf("private waitForExplorerReady");
+  const syncControllersSource = source.slice(syncStartIndex, syncEndIndex);
+  const startupGatePattern = new RegExp([
+    String.raw`if \(!isLeafVisible\(leaf\) \|\| !view\.containerEl\.querySelector\("\.nav-header"\)\) {`,
+    String.raw`this\.waitForExplorerReady\(leaf, view\);`,
+    String.raw`continue;`,
+    String.raw`}`,
+    String.raw`this\.clearPendingObserver\(leaf\);`,
+    String.raw`const controller = new FileExplorerPinController`,
+  ].join("\\s+"));
+
+  assert.notEqual(syncStartIndex, -1);
+  assert.notEqual(syncEndIndex, -1);
+  assert.match(syncControllersSource, startupGatePattern);
+});

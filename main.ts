@@ -72,6 +72,8 @@ interface InternalExplorerTree {
 
 interface InternalWorkspaceLeaf extends WorkspaceLeaf {
   id: string;
+  containerEl?: HTMLElement;
+  isVisible?: () => boolean;
 }
 
 interface InternalExplorerItem {
@@ -106,6 +108,7 @@ export default class FileExplorerPinPlugin extends Plugin {
   private settings: PluginSettings = { ...DEFAULT_SETTINGS };
   private persistedLeaves: Record<string, PersistedLeafState | undefined> = {};
   private readonly controllers = new Map<WorkspaceLeaf, FileExplorerPinController>();
+  private readonly pendingObservers = new Map<WorkspaceLeaf, MutationObserver>();
   private lastContextInfo: ContextInfo | null = null;
 
   async onload(): Promise<void> {
@@ -171,6 +174,10 @@ export default class FileExplorerPinPlugin extends Plugin {
 
   onunload(): void {
     this.lastContextInfo = null;
+    for (const observer of this.pendingObservers.values()) {
+      observer.disconnect();
+    }
+    this.pendingObservers.clear();
     for (const controller of this.controllers.values()) {
       controller.detach();
     }
@@ -246,9 +253,15 @@ export default class FileExplorerPinPlugin extends Plugin {
     const activeLeaves = new Set(this.app.workspace.getLeavesOfType(FILE_EXPLORER_VIEW_TYPE));
 
     for (const [leaf, controller] of this.controllers.entries()) {
-      if (!activeLeaves.has(leaf)) {
+      if (!activeLeaves.has(leaf) || !isLeafVisible(leaf)) {
         controller.detach();
         this.controllers.delete(leaf);
+      }
+    }
+
+    for (const leaf of Array.from(this.pendingObservers.keys())) {
+      if (!activeLeaves.has(leaf)) {
+        this.clearPendingObserver(leaf);
       }
     }
 
@@ -265,14 +278,64 @@ export default class FileExplorerPinPlugin extends Plugin {
 
       const existing = this.controllers.get(leaf);
       if (existing) {
+        this.clearPendingObserver(leaf);
         existing.syncUi();
         continue;
       }
 
+      if (!isLeafVisible(leaf) || !view.containerEl.querySelector(".nav-header")) {
+        this.waitForExplorerReady(leaf, view);
+        continue;
+      }
+
+      this.clearPendingObserver(leaf);
       const controller = new FileExplorerPinController(this, leaf, view);
       controller.attach();
       this.controllers.set(leaf, controller);
     }
+  }
+
+  private waitForExplorerReady(leaf: WorkspaceLeaf, view: InternalFileExplorerView): void {
+    if (this.pendingObservers.has(leaf)) {
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      const currentView = leaf.view as InternalFileExplorerView;
+      if (
+        !isInternalFileExplorerView(currentView) ||
+        !isLeafVisible(leaf) ||
+        !currentView.containerEl.querySelector(".nav-header")
+      ) {
+        return;
+      }
+
+      this.clearPendingObserver(leaf);
+      this.syncControllers();
+    });
+
+    for (const target of getExplorerReadinessObserverTargets(
+      this.app.workspace.containerEl,
+      leaf,
+      view,
+    )) {
+      observer.observe(target, {
+        attributes: true,
+        childList: true,
+        subtree: true,
+      });
+    }
+    this.pendingObservers.set(leaf, observer);
+  }
+
+  private clearPendingObserver(leaf: WorkspaceLeaf): void {
+    const observer = this.pendingObservers.get(leaf);
+    if (!observer) {
+      return;
+    }
+
+    observer.disconnect();
+    this.pendingObservers.delete(leaf);
   }
 
   private async loadSettings(): Promise<void> {
@@ -1549,6 +1612,39 @@ function isInternalFileExplorerView(view: unknown): view is InternalFileExplorer
   return view.containerEl instanceof HTMLElement;
 }
 
+function isLeafVisible(leaf: WorkspaceLeaf): boolean {
+  const internalLeaf = leaf as unknown as InternalWorkspaceLeaf;
+  if (typeof internalLeaf.isVisible === "function") {
+    return internalLeaf.isVisible();
+  }
+
+  if (internalLeaf.containerEl instanceof HTMLElement) {
+    return internalLeaf.containerEl.getClientRects().length > 0;
+  }
+
+  return true;
+}
+
+function getExplorerReadinessObserverTargets(
+  workspaceEl: HTMLElement,
+  leaf: WorkspaceLeaf,
+  view: InternalFileExplorerView,
+): HTMLElement[] {
+  const targets = new Set<HTMLElement>([workspaceEl, view.containerEl]);
+  const internalLeaf = leaf as unknown as InternalWorkspaceLeaf;
+
+  if (internalLeaf.containerEl instanceof HTMLElement) {
+    targets.add(internalLeaf.containerEl);
+  }
+
+  const root = leaf.getRoot() as unknown as { containerEl?: HTMLElement };
+  if (root?.containerEl instanceof HTMLElement) {
+    targets.add(root.containerEl);
+  }
+
+  return Array.from(targets);
+}
+
 function isDescendantPath(path: string, rootPath: string): boolean {
   if (rootPath.length === 0) {
     return true;
@@ -1932,5 +2028,5 @@ function waitForNextFrame(): Promise<void> {
 }
 
 function getLeafId(leaf: WorkspaceLeaf): string {
-  return (leaf as InternalWorkspaceLeaf).id;
+  return (leaf as unknown as InternalWorkspaceLeaf).id;
 }

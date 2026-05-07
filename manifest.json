@@ -1,7 +1,7 @@
 {
   "id": "folder-pin",
   "name": "Folder Pin",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "minAppVersion": "1.6.2",
   "description": "Pin folders as tabs in the default file explorer.",
   "author": "Chu HanYu",
