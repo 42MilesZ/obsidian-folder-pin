@@ -339,7 +339,7 @@ export default class FileExplorerPinPlugin extends Plugin {
   }
 
   private async loadSettings(): Promise<void> {
-    const raw = await this.loadData();
+    const raw: unknown = await this.loadData();
     const parsed = parsePluginData(raw);
     this.settings = parsed.settings;
     this.persistedLeaves = parsed.persistedLeaves;
@@ -849,7 +849,7 @@ class FileExplorerPinController {
       this.dragOverlayObserver = new MutationObserver((mutations) => {
         this.syncDragOverlayRootName(mutations);
       });
-      this.dragOverlayObserver.observe(document.body, {
+      this.dragOverlayObserver.observe(activeDocument.body, {
         childList: true,
         subtree: true,
         characterData: true,
@@ -880,7 +880,7 @@ class FileExplorerPinController {
     }
 
     if (!mutations || mutations.length === 0) {
-      replaceRootNameInFloatingNodes(document.body, rootName, pinnedRoot.name, this.view.containerEl);
+      replaceRootNameInFloatingNodes(activeDocument.body, rootName, pinnedRoot.name, this.view.containerEl);
       return;
     }
 
@@ -1021,7 +1021,7 @@ class FileExplorerPinController {
     const shouldRender =
       this.statusRenderKey !== nextRenderKey || this.statusEl.childElementCount === 0;
     if (shouldRender) {
-      const fragment = document.createDocumentFragment();
+      const fragment = createFragment();
       for (const tab of this.tabs) {
         fragment.appendChild(this.createTabElement(tab));
       }
@@ -1839,18 +1839,18 @@ function replaceRootNameInFloatingNodes(
 
 function collectTextNodes(root: Node): Text[] {
   if (root.nodeType === Node.TEXT_NODE) {
-    return root instanceof Text ? [root] : [];
+    return root.instanceOf(Text) ? [root] : [];
   }
 
-  if (!(root instanceof Element || root instanceof DocumentFragment || root instanceof Document)) {
+  if (!(root.instanceOf(Element) || root.instanceOf(DocumentFragment) || root.instanceOf(Document))) {
     return [];
   }
 
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const walker = activeDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const textNodes: Text[] = [];
   let current = walker.nextNode();
   while (current) {
-    if (current instanceof Text) {
+    if (current.instanceOf(Text)) {
       textNodes.push(current);
     }
     current = walker.nextNode();
